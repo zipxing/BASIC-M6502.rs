@@ -8,7 +8,7 @@ mod runtime;
 mod statements;
 
 use anyhow::Result;
-use rustyline::{error::ReadlineError, DefaultEditor};
+use std::io::{self, Write};
 
 /// Notes:
 /// - Goal: Recreate 6502 BASIC semantics/behavior in Rust.
@@ -16,29 +16,26 @@ use rustyline::{error::ReadlineError, DefaultEditor};
 ///   runtime (variables/arrays/strings), and statements.
 /// - First cut: minimal REPL with LET, PRINT, basic expressions and string concat.
 fn main() -> Result<()> {
-    let mut rl = DefaultEditor::new()?;
     let mut vm = runtime::Vm::new();
 
     println!("M6502 BASIC (Rust) — initial REPL; type HELP for help");
 
     loop {
-        match rl.readline("READY. ") {
-            Ok(line) => {
-                rl.add_history_entry(line.as_str()).ok();
-                if let Err(e) = handle_line(&mut vm, &line) {
-                    eprintln!("?{}", e);
-                }
-            }
-            Err(ReadlineError::Interrupted) => {
-                println!("^C");
-            }
-            Err(ReadlineError::Eof) => {
-                println!("BYE");
-                break;
-            }
-            Err(e) => {
-                eprintln!("I/O error: {e}");
-            }
+        // Prompt
+        print!("READY. ");
+        io::stdout().flush()?;
+
+        // Read a line
+        let mut line = String::new();
+        let n = io::stdin().read_line(&mut line)?;
+        if n == 0 {
+            println!("BYE");
+            break;
+        }
+        let line = line.trim_end_matches(['\n','\r']).to_string();
+
+        if let Err(e) = handle_line(&mut vm, &line) {
+            eprintln!("?{}", e);
         }
     }
 

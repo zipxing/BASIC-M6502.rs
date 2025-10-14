@@ -132,8 +132,7 @@ fn exec_print(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     if want_newline {
         println!();
     } else {
-        // In direct mode (no current program line), force newline to play nice with rustyline prompt
-        if vm.current_line.is_none() { println!(); } else { io::stdout().flush().ok(); }
+        io::stdout().flush().ok(); 
     }
     Ok(())
 }
