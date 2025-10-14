@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write as IoWrite;
 use crate::program::Program;
 use crate::value::Value;
 use crate::tokens::{Tok, TokenKind};
@@ -20,10 +22,11 @@ pub struct Vm {
     pub data_tok_pos: Option<usize>,
     // Pseudo RNG state
     pub rng_seed: u64,
+    pub debug: bool,
 }
 
 impl Vm {
-    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None, rng_seed: 0x1234_5678_9abc_def0 } }
+    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None, rng_seed: 0x1234_5678_9abc_def0, debug: true } }
 
     /// Run the current program from the lowest line.
     pub fn run(&mut self) {
@@ -157,6 +160,14 @@ impl Vm {
         self.rng_seed = self.rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
         let v = (self.rng_seed >> 11) as f64 / ((1u64 << 53) as f64);
         if v >= 1.0 { 0.999999999999 } else { v }
+    }
+
+    /// Append debug line to debug.log if debug is enabled.
+    pub fn log_debug<S: AsRef<str>>(&self, s: S) {
+        if !self.debug { return; }
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("debug.log") {
+            let _ = writeln!(f, "{}", s.as_ref());
+        }
     }
 }
 

@@ -40,12 +40,19 @@ pub fn parse_expression(cur: &mut Cursor) -> Option<Value> {
                         (Value::Str(a), Value::Str(b)) => Value::Str(a + &b),
                         (Value::Str(a), Value::Number(b)) => Value::Str(a + &b.to_string()),
                         (Value::Number(a), Value::Str(b)) => Value::Str(a.to_string() + &b),
+                        (Value::Tab(_), v) => v,
+                        (v, Value::Tab(_)) => v,
                     };
                 }
                 Tok::Symbol('-') => {
                     cur.next();
                     let rhs = parse_term(cur)?;
-                    lhs = Value::Number(lhs.as_number() - rhs.as_number());
+                    lhs = match (lhs, rhs) {
+                        (Value::Number(a), Value::Number(b)) => Value::Number(a - b),
+                        (Value::Tab(_), v) => v,
+                        (v, Value::Tab(_)) => v,
+                        (a, b) => Value::Number(a.as_number() - b.as_number()),
+                    };
                 }
                 _ => break,
             }
@@ -67,6 +74,8 @@ pub fn parse_expression_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> 
                         (Value::Str(a), Value::Str(b)) => Value::Str(a + &b),
                         (Value::Str(a), Value::Number(b)) => Value::Str(a + &b.to_string()),
                         (Value::Number(a), Value::Str(b)) => Value::Str(a.to_string() + &b),
+                        (Value::Tab(_), v) => v,
+                        (v, Value::Tab(_)) => v,
                     };
                 }
                 Tok::Symbol('-') => {
@@ -110,12 +119,23 @@ fn parse_term_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                 Tok::Symbol('*') => {
                     cur.next();
                     let rhs = parse_factor_with_vm(cur, vm)?;
-                    lhs = Value::Number(lhs.as_number() * rhs.as_number());
+                    lhs = match (lhs, rhs) {
+                        (Value::Number(a), Value::Number(b)) => Value::Number(a * b),
+                        (Value::Str(a), Value::Str(b)) => Value::Str(format!("{}{}", a, b)),
+                        (Value::Tab(_), v) => v,
+                        (v, Value::Tab(_)) => v,
+                        (a, b) => Value::Number(a.as_number() * b.as_number()),
+                    };
                 }
                 Tok::Symbol('/') => {
                     cur.next();
                     let rhs = parse_factor_with_vm(cur, vm)?;
-                    lhs = Value::Number(lhs.as_number() / rhs.as_number());
+                    lhs = match (lhs, rhs) {
+                        (Value::Number(a), Value::Number(b)) => Value::Number(a / b),
+                        (Value::Tab(_), v) => v,
+                        (v, Value::Tab(_)) => v,
+                        (a, b) => Value::Number(a.as_number() / b.as_number()),
+                    };
                 }
                 _ => break,
             }
@@ -173,6 +193,7 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                         match a0 {
                             Value::Str(s) => Value::Number(s.chars().count() as f64),
                             Value::Number(n) => Value::Number(n.to_string().chars().count() as f64),
+                            Value::Tab(_) => Value::Number(0.0),
                         }
                     }
                     "CHR$" => {
@@ -186,6 +207,7 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                             Value::Number(copt.map(|c| c as u32 as f64).unwrap_or(0.0))
                         }
                         Value::Number(n) => Value::Number(n as f64),
+                        Value::Tab(_) => Value::Number(0.0),
                     },
                     "VAL" => match args.remove(0) {
                         Value::Str(s) => s
@@ -193,10 +215,12 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                             .map(Value::Number)
                             .unwrap_or(Value::Number(0.0)),
                         Value::Number(n) => Value::Number(n),
+                        Value::Tab(_) => Value::Number(0.0),
                     },
                     "STR$" => match args.remove(0) {
                         Value::Number(n) => Value::Str(n.to_string()),
                         Value::Str(s) => Value::Str(s),
+                        Value::Tab(_) => Value::Str(String::new()),
                     },
                     "ABS" => Value::Number(args.remove(0).as_number().abs()),
                     "INT" => Value::Number(args.remove(0).as_number().trunc()),
@@ -274,6 +298,10 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                             if v.as_number() <= 0.0 { /* no-op reseed */ }
                         }
                         Value::Number(vm.next_rand())
+                    }
+                    "TAB" => {
+                        let n = args.get(0).map(|v| v.as_number() as usize).unwrap_or(0);
+                        Value::Tab(n)
                     }
                     _ => return None,
                 };

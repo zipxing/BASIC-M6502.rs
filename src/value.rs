@@ -4,6 +4,7 @@
 pub enum Value {
     Number(f64),
     Str(String),
+    Tab(usize),
 }
 
 impl Value {
@@ -11,6 +12,7 @@ impl Value {
         match self {
             Value::Number(n) => *n,
             Value::Str(s) => s.parse::<f64>().unwrap_or(0.0),
+            Value::Tab(n) => *n as f64,
         }
     }
 }

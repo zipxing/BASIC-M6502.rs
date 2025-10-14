@@ -83,18 +83,58 @@ fn exec_print(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     match cur.peek() { Some(Tok::Keyword(TokenKind::Print)) => { cur.next(); }, _ => {} }
     // Simplified: read expressions to end of line, separated by comma/semicolon.
     let mut first = true;
+    let mut col: usize = 0;
+    let zone: usize = 14; // classic print zone width
+    let mut want_newline = true;
     loop {
+        vm.log_debug(format!("[PRINT] start expr at tok {}", cur.i));
         if let Some(val) = parse_expression_with_vm(cur, vm) {
-            if !first { print!(" "); }
-            match val { Value::Number(n) => print!("{}", n), Value::Str(s) => print!("{}", s) }
+            if !first { print!(" "); col += 1; }
+            match val {
+                Value::Number(n) => { vm.log_debug(format!("[PRINT] number {}", n)); let s = format!("{}", n); col += s.len(); print!("{}", s); }
+                Value::Str(s) => { vm.log_debug(format!("[PRINT] str {}", s)); col += s.len(); print!("{}", s); }
+                Value::Tab(n) => {
+                    let target = n;
+                    if col < target { let spaces = target - col; for _ in 0..spaces { print!(" "); } col = target; }
+                }
+            }
+            io::stdout().flush().ok();
             first = false;
+        } else {
+            // Fallback: directly print literal when expression parser refuses (e.g., edge tokens)
+            match cur.peek() {
+                Some(Tok::Number(n)) => { vm.log_debug(format!("[PRINT] fallback number {}", n)); cur.next(); let s = format!("{}", n); if !first { print!(" "); col+=1; } col += s.len(); print!("{}", s); first=false; }
+                Some(Tok::String(sv)) => { vm.log_debug(format!("[PRINT] fallback str {}", sv)); cur.next(); if !first { print!(" "); col+=1; } col += sv.len(); print!("{}", sv); first=false; }
+                _ => {}
+            }
         }
         match cur.peek() {
-            Some(Tok::Symbol(',')) | Some(Tok::Symbol(';')) => { cur.next(); continue; }
+            Some(Tok::Symbol(',')) => {
+                // advance to next print zone
+                cur.next();
+                let next_zone = ((col / zone) + 1) * zone;
+                if col < next_zone {
+                    for _ in 0..(next_zone - col) { print!(" "); }
+                    col = next_zone;
+                }
+                want_newline = true;
+                continue;
+            }
+            Some(Tok::Symbol(';')) => {
+                // suppress newline and finish immediately
+                cur.next();
+                want_newline = false;
+                break;
+            }
             _ => break,
         }
     }
-    println!();
+    if want_newline {
+        println!();
+    } else {
+        // In direct mode (no current program line), force newline to play nice with rustyline prompt
+        if vm.current_line.is_none() { println!(); } else { io::stdout().flush().ok(); }
+    }
     Ok(())
 }
 
