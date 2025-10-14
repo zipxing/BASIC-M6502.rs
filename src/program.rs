@@ -1,5 +1,5 @@
 use crate::lexer::take_leading_line_number;
-use crate::tokens::Tok;
+use crate::tokens::{Tok, keyword_name, TokenKind};
 use std::collections::BTreeMap;
 
 /// Program line structure, conceptually like [line_no][text]\0.
@@ -23,6 +23,28 @@ impl Program {
         }
     }
     pub fn delete_line(&mut self, line_no: u16) { self.lines.remove(&line_no); }
+
+    pub fn clear(&mut self) { self.lines.clear(); }
+
+    /// List program lines in ascending order.
+    pub fn list(&self) {
+        for (ln, pl) in &self.lines {
+            print!("{} ", ln);
+            let mut first = true;
+            for t in &pl.tokens {
+                if !first { print!(" "); }
+                first = false;
+                match t {
+                    Tok::Keyword(k) => print!("{}", keyword_name(*k)),
+                    Tok::Ident(s) => print!("{}", s),
+                    Tok::Number(n) => print!("{}", n),
+                    Tok::String(s) => print!("\"{}\"", s),
+                    Tok::Symbol(c) => print!("{}", c),
+                }
+            }
+            println!();
+        }
+    }
 }
 
 /// Parse an optional leading line number (wrapper for lexer helper).

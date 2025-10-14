@@ -16,6 +16,8 @@ pub enum TokenKind {
     Goto,
     Run,
     List,
+    New,
+    Clear,
     If,
     Restore,
     Gosub,
@@ -53,6 +55,8 @@ pub fn lookup_keyword_upper(s: &str) -> Option<TokenKind> {
         "LET" => Some(Let),
         "GOTO" => Some(Goto),
         "RUN" => Some(Run),
+        "NEW" => Some(New),
+        "CLEAR" => Some(Clear),
         "IF" => Some(If),
         "RESTORE" => Some(Restore),
         "GOSUB" => Some(Gosub),
@@ -64,6 +68,36 @@ pub fn lookup_keyword_upper(s: &str) -> Option<TokenKind> {
         "THEN" => Some(Then),
         "TO" => Some(To),
         _ => None,
+    }
+}
+
+/// Map a keyword token to its canonical BASIC name for listing.
+pub fn keyword_name(k: TokenKind) -> &'static str {
+    use TokenKind::*;
+    match k {
+        End => "END",
+        For => "FOR",
+        Next => "NEXT",
+        Data => "DATA",
+        Input => "INPUT",
+        Dim => "DIM",
+        Read => "READ",
+        Let => "LET",
+        Goto => "GOTO",
+        Run => "RUN",
+        List => "LIST",
+        New => "NEW",
+        Clear => "CLEAR",
+        If => "IF",
+        Restore => "RESTORE",
+        Gosub => "GOSUB",
+        Return => "RETURN",
+        Rem => "REM",
+        Stop => "STOP",
+        On => "ON",
+        Print => "PRINT",
+        Then => "THEN",
+        To => "TO",
     }
 }
 

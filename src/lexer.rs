@@ -13,6 +13,11 @@ pub fn crunch(src: &str) -> Vec<Tok> {
             ' ' | '\t' => {
                 i += 1;
             }
+            '?' => {
+                // Alias: '?' is PRINT
+                i += 1;
+                out.push(Tok::Keyword(TokenKind::Print));
+            }
             '0'..='9' => {
                 let start = i;
                 i += 1;
