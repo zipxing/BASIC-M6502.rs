@@ -1,6 +1,6 @@
+use crate::runtime::Vm;
 use crate::tokens::Tok;
 use crate::value::Value;
-use crate::runtime::Vm;
 
 /// Minimal Pratt-style expression parser:
 /// supports + - * /, parentheses, and string concatenation via '+'.
@@ -12,9 +12,19 @@ pub struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    pub fn new(toks: &'a [Tok]) -> Self { Self { toks, i: 0 } }
-    pub fn peek(&self) -> Option<&'a Tok> { self.toks.get(self.i) }
-    pub fn next(&mut self) -> Option<&'a Tok> { let t = self.toks.get(self.i); if t.is_some() { self.i+=1; } t }
+    pub fn new(toks: &'a [Tok]) -> Self {
+        Self { toks, i: 0 }
+    }
+    pub fn peek(&self) -> Option<&'a Tok> {
+        self.toks.get(self.i)
+    }
+    pub fn next(&mut self) -> Option<&'a Tok> {
+        let t = self.toks.get(self.i);
+        if t.is_some() {
+            self.i += 1;
+        }
+        t
+    }
 }
 
 #[allow(dead_code)]
@@ -22,7 +32,8 @@ pub fn parse_expression(cur: &mut Cursor) -> Option<Value> {
     parse_term(cur).and_then(|mut lhs| {
         while let Some(tok) = cur.peek() {
             match tok {
-                Tok::Symbol('+') => { cur.next();
+                Tok::Symbol('+') => {
+                    cur.next();
                     let rhs = parse_term(cur)?;
                     lhs = match (lhs, rhs) {
                         (Value::Number(a), Value::Number(b)) => Value::Number(a + b),
@@ -31,7 +42,11 @@ pub fn parse_expression(cur: &mut Cursor) -> Option<Value> {
                         (Value::Number(a), Value::Str(b)) => Value::Str(a.to_string() + &b),
                     };
                 }
-                Tok::Symbol('-') => { cur.next(); let rhs = parse_term(cur)?; lhs = Value::Number(lhs.as_number() - rhs.as_number()); }
+                Tok::Symbol('-') => {
+                    cur.next();
+                    let rhs = parse_term(cur)?;
+                    lhs = Value::Number(lhs.as_number() - rhs.as_number());
+                }
                 _ => break,
             }
         }
@@ -44,7 +59,8 @@ pub fn parse_expression_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> 
     parse_term_with_vm(cur, vm).and_then(|mut lhs| {
         while let Some(tok) = cur.peek() {
             match tok {
-                Tok::Symbol('+') => { cur.next();
+                Tok::Symbol('+') => {
+                    cur.next();
                     let rhs = parse_term_with_vm(cur, vm)?;
                     lhs = match (lhs, rhs) {
                         (Value::Number(a), Value::Number(b)) => Value::Number(a + b),
@@ -53,7 +69,11 @@ pub fn parse_expression_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> 
                         (Value::Number(a), Value::Str(b)) => Value::Str(a.to_string() + &b),
                     };
                 }
-                Tok::Symbol('-') => { cur.next(); let rhs = parse_term_with_vm(cur, vm)?; lhs = Value::Number(lhs.as_number() - rhs.as_number()); }
+                Tok::Symbol('-') => {
+                    cur.next();
+                    let rhs = parse_term_with_vm(cur, vm)?;
+                    lhs = Value::Number(lhs.as_number() - rhs.as_number());
+                }
                 _ => break,
             }
         }
@@ -66,8 +86,16 @@ fn parse_term(cur: &mut Cursor) -> Option<Value> {
     parse_factor(cur).and_then(|mut lhs| {
         while let Some(tok) = cur.peek() {
             match tok {
-                Tok::Symbol('*') => { cur.next(); let rhs = parse_factor(cur)?; lhs = Value::Number(lhs.as_number() * rhs.as_number()); }
-                Tok::Symbol('/') => { cur.next(); let rhs = parse_factor(cur)?; lhs = Value::Number(lhs.as_number() / rhs.as_number()); }
+                Tok::Symbol('*') => {
+                    cur.next();
+                    let rhs = parse_factor(cur)?;
+                    lhs = Value::Number(lhs.as_number() * rhs.as_number());
+                }
+                Tok::Symbol('/') => {
+                    cur.next();
+                    let rhs = parse_factor(cur)?;
+                    lhs = Value::Number(lhs.as_number() / rhs.as_number());
+                }
                 _ => break,
             }
         }
@@ -79,8 +107,16 @@ fn parse_term_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
     parse_factor_with_vm(cur, vm).and_then(|mut lhs| {
         while let Some(tok) = cur.peek() {
             match tok {
-                Tok::Symbol('*') => { cur.next(); let rhs = parse_factor_with_vm(cur, vm)?; lhs = Value::Number(lhs.as_number() * rhs.as_number()); }
-                Tok::Symbol('/') => { cur.next(); let rhs = parse_factor_with_vm(cur, vm)?; lhs = Value::Number(lhs.as_number() / rhs.as_number()); }
+                Tok::Symbol('*') => {
+                    cur.next();
+                    let rhs = parse_factor_with_vm(cur, vm)?;
+                    lhs = Value::Number(lhs.as_number() * rhs.as_number());
+                }
+                Tok::Symbol('/') => {
+                    cur.next();
+                    let rhs = parse_factor_with_vm(cur, vm)?;
+                    lhs = Value::Number(lhs.as_number() / rhs.as_number());
+                }
                 _ => break,
             }
         }
@@ -95,7 +131,9 @@ fn parse_factor(cur: &mut Cursor) -> Option<Value> {
         Tok::String(s) => Some(Value::Str(s.clone())),
         Tok::Symbol('(') => {
             let v = parse_expression(cur)?;
-            if !matches!(cur.next(), Some(Tok::Symbol(')'))) { return None; }
+            if !matches!(cur.next(), Some(Tok::Symbol(')'))) {
+                return None;
+            }
             Some(v)
         }
         Tok::Symbol('-') => {
@@ -117,8 +155,17 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                 // Support 1-3 arguments (for MID$)
                 let arg1 = parse_expression_with_vm(cur, vm)?;
                 let mut args: Vec<Value> = vec![arg1];
-                while let Some(Tok::Symbol(',')) = cur.peek() { cur.next(); if let Some(v)=parse_expression_with_vm(cur, vm) { args.push(v); } else { return None; } }
-                if !matches!(cur.next(), Some(Tok::Symbol(')'))) { return None; }
+                while let Some(Tok::Symbol(',')) = cur.peek() {
+                    cur.next();
+                    if let Some(v) = parse_expression_with_vm(cur, vm) {
+                        args.push(v);
+                    } else {
+                        return None;
+                    }
+                }
+                if !matches!(cur.next(), Some(Tok::Symbol(')'))) {
+                    return None;
+                }
                 let up = name.to_ascii_uppercase();
                 let res = match up.as_str() {
                     "LEN" => {
@@ -127,7 +174,7 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                             Value::Str(s) => Value::Number(s.chars().count() as f64),
                             Value::Number(n) => Value::Number(n.to_string().chars().count() as f64),
                         }
-                    },
+                    }
                     "CHR$" => {
                         let code = args.get(0).unwrap().as_number();
                         let ch = (code as i64).clamp(0, 255) as u8 as char;
@@ -141,7 +188,10 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                         Value::Number(n) => Value::Number(n as f64),
                     },
                     "VAL" => match args.remove(0) {
-                        Value::Str(s) => s.parse::<f64>().map(Value::Number).unwrap_or(Value::Number(0.0)),
+                        Value::Str(s) => s
+                            .parse::<f64>()
+                            .map(Value::Number)
+                            .unwrap_or(Value::Number(0.0)),
                         Value::Number(n) => Value::Number(n),
                     },
                     "STR$" => match args.remove(0) {
@@ -151,12 +201,36 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                     "ABS" => Value::Number(args.remove(0).as_number().abs()),
                     "INT" => Value::Number(args.remove(0).as_number().trunc()),
                     "LEFT$" => {
-                        let s = match args.get(0) { Some(Value::Str(s)) => s.clone(), v => v.as_ref().map(|x| if let Value::Number(n)=x { n.to_string() } else { String::new() }).unwrap_or_default() };
+                        let s = match args.get(0) {
+                            Some(Value::Str(s)) => s.clone(),
+                            v => v
+                                .as_ref()
+                                .map(|x| {
+                                    if let Value::Number(n) = x {
+                                        n.to_string()
+                                    } else {
+                                        String::new()
+                                    }
+                                })
+                                .unwrap_or_default(),
+                        };
                         let n = args.get(1).map(|v| v.as_number() as usize).unwrap_or(0);
                         Value::Str(s.chars().take(n).collect())
                     }
                     "RIGHT$" => {
-                        let s = match args.get(0) { Some(Value::Str(s)) => s.clone(), v => v.as_ref().map(|x| if let Value::Number(n)=x { n.to_string() } else { String::new() }).unwrap_or_default() };
+                        let s = match args.get(0) {
+                            Some(Value::Str(s)) => s.clone(),
+                            v => v
+                                .as_ref()
+                                .map(|x| {
+                                    if let Value::Number(n) = x {
+                                        n.to_string()
+                                    } else {
+                                        String::new()
+                                    }
+                                })
+                                .unwrap_or_default(),
+                        };
                         let n = args.get(1).map(|v| v.as_number() as usize).unwrap_or(0);
                         let len = s.chars().count();
                         let take = n.min(len);
@@ -164,19 +238,41 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                     }
                     "MID$" => {
                         // MID$(s, start[, len])  start 1-based
-                        let s = match args.get(0) { Some(Value::Str(s)) => s.clone(), v => v.as_ref().map(|x| if let Value::Number(n)=x { n.to_string() } else { String::new() }).unwrap_or_default() };
+                        let s = match args.get(0) {
+                            Some(Value::Str(s)) => s.clone(),
+                            v => v
+                                .as_ref()
+                                .map(|x| {
+                                    if let Value::Number(n) = x {
+                                        n.to_string()
+                                    } else {
+                                        String::new()
+                                    }
+                                })
+                                .unwrap_or_default(),
+                        };
                         let start = args.get(1).map(|v| v.as_number() as isize).unwrap_or(1);
                         let len_opt = args.get(2).map(|v| v.as_number() as usize);
                         let chars: Vec<char> = s.chars().collect();
-                        if start <= 0 { return Some(Value::Str(String::new())); }
+                        if start <= 0 {
+                            return Some(Value::Str(String::new()));
+                        }
                         let idx0 = (start as usize).saturating_sub(1);
-                        if idx0 >= chars.len() { return Some(Value::Str(String::new())); }
-                        let slice = if let Some(l)=len_opt { &chars[idx0..(idx0+l).min(chars.len())] } else { &chars[idx0..] };
+                        if idx0 >= chars.len() {
+                            return Some(Value::Str(String::new()));
+                        }
+                        let slice = if let Some(l) = len_opt {
+                            &chars[idx0..(idx0 + l).min(chars.len())]
+                        } else {
+                            &chars[idx0..]
+                        };
                         Value::Str(slice.iter().collect())
                     }
                     "RND" => {
                         // RND() -> 0..1; RND(n) mimic: if n<=0 reseed (simple), else new value
-                        if let Some(v)=args.get(0) { if v.as_number() <= 0.0 { /* no-op reseed */ } }
+                        if let Some(v) = args.get(0) {
+                            if v.as_number() <= 0.0 { /* no-op reseed */ }
+                        }
                         Value::Number(vm.next_rand())
                     }
                     _ => return None,
@@ -192,7 +288,9 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
         }
         Tok::Symbol('(') => {
             let v = parse_expression_with_vm(cur, vm)?;
-            if !matches!(cur.next(), Some(Tok::Symbol(')'))) { return None; }
+            if !matches!(cur.next(), Some(Tok::Symbol(')'))) {
+                return None;
+            }
             Some(v)
         }
         Tok::Symbol('-') => {
@@ -202,4 +300,3 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
         _ => None,
     }
 }
-

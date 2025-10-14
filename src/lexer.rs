@@ -61,7 +61,9 @@ pub fn crunch(src: &str) -> Vec<Tok> {
                 }
                 let s = src[start..i].to_string();
                 out.push(Tok::String(s));
-                if i < b.len() { i += 1; }
+                if i < b.len() {
+                    i += 1;
+                }
             }
             _ => {
                 out.push(Tok::Symbol(c));
@@ -80,10 +82,16 @@ pub fn take_leading_line_number(src: &str) -> Option<(u16, &str)> {
     let mut has_digit = false;
     while i < bytes.len() {
         let ch = bytes[i] as char;
-        if ch.is_ascii_digit() { has_digit = true; i += 1; } else { break; }
+        if ch.is_ascii_digit() {
+            has_digit = true;
+            i += 1;
+        } else {
+            break;
+        }
     }
-    if !has_digit { return None; }
+    if !has_digit {
+        return None;
+    }
     let ln: u16 = s[..i].parse().ok()?;
     Some((ln, &s[i..]))
 }
-

@@ -1,5 +1,5 @@
 use crate::lexer::take_leading_line_number;
-use crate::tokens::{Tok, keyword_name};
+use crate::tokens::{keyword_name, Tok};
 use std::collections::BTreeMap;
 
 /// Program line structure, conceptually like [line_no][text]\0.
@@ -22,9 +22,13 @@ impl Program {
             self.lines.insert(line_no, ProgramLine { line_no, tokens });
         }
     }
-    pub fn delete_line(&mut self, line_no: u16) { self.lines.remove(&line_no); }
+    pub fn delete_line(&mut self, line_no: u16) {
+        self.lines.remove(&line_no);
+    }
 
-    pub fn clear(&mut self) { self.lines.clear(); }
+    pub fn clear(&mut self) {
+        self.lines.clear();
+    }
 
     /// List program lines in ascending order.
     pub fn list(&self) {
@@ -32,7 +36,9 @@ impl Program {
             print!("{} ", ln);
             let mut first = true;
             for t in &pl.tokens {
-                if !first { print!(" "); }
+                if !first {
+                    print!(" ");
+                }
                 first = false;
                 match t {
                     Tok::Keyword(k) => print!("{}", keyword_name(*k)),
@@ -51,4 +57,3 @@ impl Program {
 pub fn parse_leading_line_number(src: &str) -> Option<(u16, &str)> {
     take_leading_line_number(src)
 }
-
