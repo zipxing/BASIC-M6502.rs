@@ -4,6 +4,7 @@ use crate::tokens::{Tok, TokenKind};
 use crate::parser::{Cursor, parse_expression_with_vm};
 use crate::value::Value;
 use std::io::{self, Write};
+use std::fs;
 
 /// Execute immediate statements (no line number).
 /// Supports: PRINT, LET, and implicit assignment (IDENT = expr).
@@ -39,7 +40,10 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
                 "DATA" => { /* data-only line, ignore in direct mode */ continue; }
                 "READ" => { cur.next(); exec_read(vm, &mut cur)?; continue; }
                 "RESTORE" => { cur.next(); exec_restore(vm, &mut cur)?; continue; }
+                "ON" => { cur.next(); exec_on(vm, &mut cur)?; continue; }
                 "INPUT" => { cur.next(); exec_input(vm, &mut cur)?; continue; }
+                "SAVE" => { cur.next(); exec_save(vm, &mut cur)?; continue; }
+                "LOAD" => { cur.next(); exec_load(vm, &mut cur)?; continue; }
                 "END" => { vm.halted = true; continue; }
                 "STOP" => { vm.halted = true; continue; }
                 _ => {}
@@ -55,7 +59,10 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
             Some(Tok::Keyword(TokenKind::Data)) => { /* program store only */ Ok(()) }
             Some(Tok::Keyword(TokenKind::Read)) => { cur.next(); exec_read(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::Restore)) => { cur.next(); exec_restore(vm, &mut cur) }
+            Some(Tok::Keyword(TokenKind::On)) => { cur.next(); exec_on(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::Input)) => { cur.next(); exec_input(vm, &mut cur) }
+            Some(Tok::Keyword(TokenKind::Save)) => { cur.next(); exec_save(vm, &mut cur) }
+            Some(Tok::Keyword(TokenKind::Load)) => { cur.next(); exec_load(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::End)) => { vm.halted = true; Ok(()) }
             Some(Tok::Keyword(TokenKind::Stop)) => { vm.halted = true; Ok(()) }
         Some(Tok::Keyword(TokenKind::Let)) => { cur.next(); exec_assignment(vm, &mut cur) },
@@ -192,6 +199,82 @@ fn exec_next(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     Ok(())
 }
 
+fn exec_on(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
+    // ON expr GOTO l1[,l2...] | ON expr GOSUB l1[,l2...]
+    let idx = parse_expression_with_vm(cur, vm).ok_or_else(|| anyhow::anyhow!("SYNTAX ERROR"))?.as_number() as isize;
+    // read target keyword (GOTO or GOSUB), handling both keyword and identifier forms
+    let is_gosub = match cur.next() {
+        Some(Tok::Keyword(TokenKind::Goto)) => false,
+        Some(Tok::Keyword(TokenKind::Gosub)) => true,
+        Some(Tok::Ident(name)) => {
+            let up = name.to_ascii_uppercase();
+            if up == "GOTO" { false } else if up == "GOSUB" { true } else { bail!("SYNTAX ERROR") }
+        }
+        _ => bail!("SYNTAX ERROR"),
+    };
+    if idx <= 0 { return Ok(()); }
+    let mut i = 1isize;
+    loop {
+        let ln = match cur.next() { Some(Tok::Number(n)) => *n as u16, _ => bail!("SYNTAX ERROR") };
+        if i == idx {
+            if is_gosub {
+                let ret = vm.current_line.and_then(|ln| vm.next_line_after(ln)).ok_or_else(|| anyhow::anyhow!("RETURN WITHOUT GOSUB"))?;
+                vm.gosub_stack.push(crate::runtime::GosubFrame { return_line: ret });
+            }
+            vm.jump_to = Some(ln);
+            return Ok(());
+        }
+        match cur.peek() {
+            Some(Tok::Symbol(',')) => { cur.next(); i += 1; continue; }
+            _ => break,
+        }
+    }
+    Ok(())
+}
+
+fn exec_save(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
+    // SAVE "filename"
+    let path = match cur.next() { Some(Tok::String(s)) => s.clone(), _ => bail!("SYNTAX ERROR") };
+    // Write as plain text lines: "<line> <tokens... as text>" (using list printer)
+    let mut out = String::new();
+    for (ln, pl) in &vm.program.lines {
+        out.push_str(&format!("{} ", ln));
+        let mut first = true;
+        for t in &pl.tokens {
+            if !first { out.push(' '); }
+            first = false;
+            match t {
+                Tok::Keyword(k) => out.push_str(crate::tokens::keyword_name(*k)),
+                Tok::Ident(s) => out.push_str(s),
+                Tok::Number(n) => out.push_str(&format!("{}", n)),
+                Tok::String(s) => { out.push('"'); out.push_str(s); out.push('"'); }
+                Tok::Symbol(c) => out.push(*c),
+            }
+        }
+        out.push('\n');
+    }
+    fs::write(path, out).map_err(|_| anyhow::anyhow!("IO ERROR"))?;
+    Ok(())
+}
+
+fn exec_load(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
+    // LOAD "filename"
+    let path = match cur.next() { Some(Tok::String(s)) => s.clone(), _ => bail!("SYNTAX ERROR") };
+    let data = fs::read_to_string(path).map_err(|_| anyhow::anyhow!("IO ERROR"))?;
+    vm.program.clear();
+    for line in data.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        // First token is line number
+        let mut parts = trimmed.splitn(2, ' ');
+        let ln_str = parts.next().unwrap_or("");
+        let rest = parts.next().unwrap_or("");
+        let ln: u16 = ln_str.parse().map_err(|_| anyhow::anyhow!("SYNTAX ERROR"))?;
+        let toks = crate::lexer::crunch(rest);
+        vm.program.insert_line(ln, toks);
+    }
+    Ok(())
+}
 fn exec_read(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     // READ A, B, C ...  assign from DATA pool; strings/numbers supported
     loop {

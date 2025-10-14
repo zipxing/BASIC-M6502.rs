@@ -111,6 +111,27 @@ A modern Rust recreation of Microsoft 6502 BASIC (8K v1.1) semantics and behavio
     40 PRINT RND(1)
     RUN
     ```
+  - Test snippet (ON ... GOSUB):
+    ```text
+    10 A=2
+    20 ON A GOSUB 100,200
+    30 PRINT "BACK": END
+    100 PRINT "ONE": RETURN
+    200 PRINT "TWO": RETURN
+    RUN
+    ```
+
+- v0.6.0
+  - SAVE/LOAD program as plain text (LIST-like format).
+  - Test snippet:
+    ```text
+    10 PRINT "HELLO"
+    SAVE "prog.bas"
+    NEW
+    LOAD "prog.bas"
+    LIST
+    RUN
+    ```
 
 ## Build & Run
 ```bash
