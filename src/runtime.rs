@@ -16,19 +16,28 @@ pub struct Vm {
     pub for_stack: Vec<ForFrame>,
     pub current_line: Option<u16>,
     pub line_order: Vec<u16>,
+    // DATA/READ cursor
+    pub data_line_pos: usize,
+    pub data_tok_pos: Option<usize>,
 }
 
 impl Vm {
-    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new() } }
+    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None } }
 
     /// Run the current program from the lowest line.
     pub fn run(&mut self) {
+        // Reset variables and DATA cursor at start of RUN
+        self.vars.clear();
+        self.restore_data(None);
+        self.jump_to = None;
+
         let lines: Vec<u16> = self.program.lines.keys().cloned().collect();
         let mut i = 0usize;
         self.halted = false;
         self.line_order = lines.clone();
         self.gosub_stack.clear();
         self.for_stack.clear();
+        // DATA cursor is already reset above
         while i < lines.len() {
             let ln = lines[i];
             self.current_line = Some(ln);
@@ -54,8 +63,11 @@ impl Vm {
                         break;
                     }
                 }
-                // otherwise execute as immediate
-                let _ = execute_direct(self, &s);
+                // otherwise execute as immediate; propagate errors as halts
+                match execute_direct(self, &s) {
+                    Ok(()) => {}
+                    Err(e) => { eprintln!("?{}", e); self.halted = true; }
+                }
                 if self.halted { break; }
                 if self.jump_to.is_some() { break; }
             }
@@ -89,5 +101,50 @@ pub struct ForFrame {
     pub end: f64,
     pub step: f64,
     pub start_line: u16,
+}
+
+impl Vm {
+    pub fn restore_data(&mut self, at_line: Option<u16>) {
+        if let Some(ln) = at_line {
+            if let Some(pos) = self.line_order.iter().position(|x| *x == ln) {
+                self.data_line_pos = pos;
+            } else {
+                self.data_line_pos = 0;
+            }
+        } else {
+            self.data_line_pos = 0;
+        }
+        self.data_tok_pos = None;
+    }
+
+    /// Fetch next DATA value scanning program lines. Returns None if no more.
+    pub fn next_data_value(&mut self) -> Option<Value> {
+        while self.data_line_pos < self.line_order.len() {
+            let ln = self.line_order[self.data_line_pos];
+            let pl = self.program.lines.get(&ln)?;
+            let mut pos = match self.data_tok_pos {
+                Some(p) => p,
+                None => {
+                    // find DATA token
+                    let mut idx = None;
+                    for (i, t) in pl.tokens.iter().enumerate() {
+                        if let Tok::Keyword(TokenKind::Data) = t { idx = Some(i+1); break; }
+                    }
+                    match idx { Some(p) => p, None => { self.data_line_pos += 1; continue; } }
+                }
+            };
+            // skip commas
+            while pos < pl.tokens.len() { if matches!(pl.tokens[pos], Tok::Symbol(',')) { pos+=1; } else { break; } }
+            if pos >= pl.tokens.len() { self.data_line_pos += 1; self.data_tok_pos = None; continue; }
+            match &pl.tokens[pos] {
+                Tok::Number(n) => { self.data_tok_pos = Some(pos+1); return Some(Value::Number(*n)); }
+                Tok::String(s) => { self.data_tok_pos = Some(pos+1); return Some(Value::Str(s.clone())); }
+                // end of DATA on this line (e.g., colon or not a literal)
+                Tok::Symbol(':') => { self.data_line_pos += 1; self.data_tok_pos = None; continue; }
+                _ => { self.data_line_pos += 1; self.data_tok_pos = None; continue; }
+            }
+        }
+        None
+    }
 }
 

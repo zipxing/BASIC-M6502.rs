@@ -60,6 +60,35 @@ A modern Rust recreation of Microsoft 6502 BASIC (8K v1.1) semantics and behavio
     RUN
     ```
 
+- v0.4.0
+  - Data and input features:
+    - DATA/READ/RESTORE with a program-wide data pointer.
+    - RUN now auto CLEAR variables and RESTORE the data pointer.
+    - READ at end of data raises `?OUT OF DATA` and halts the run.
+    - INPUT with optional prompt; numeric inputs must parse, else `?REDO FROM START` and re-prompt.
+  - Strict type checking (classic BASIC semantics):
+    - Variables without `$` are numeric; with `$` are string.
+    - LET/READ/INPUT enforce types; mismatches raise `?TYPE MISMATCH`.
+  - Test snippet (DATA/READ/RESTORE):
+    ```text
+    10 DATA 1,2,3,"HI"
+    20 READ A,B$
+    30 PRINT A,B$
+    40 READ A
+    50 PRINT A
+    60 RESTORE
+    70 READ A
+    80 PRINT A
+    LIST
+    RUN
+    ```
+  - Test snippet (INPUT):
+    ```text
+    10 INPUT "NAME,AGE? "; N$,A
+    20 PRINT N$,A
+    RUN
+    ```
+
 ## Build & Run
 ```bash
 cd BASIC-M6502.rs

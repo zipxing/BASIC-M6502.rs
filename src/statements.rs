@@ -3,6 +3,7 @@ use crate::runtime::Vm;
 use crate::tokens::{Tok, TokenKind};
 use crate::parser::{Cursor, parse_expression_with_vm};
 use crate::value::Value;
+use std::io::{self, Write};
 
 /// Execute immediate statements (no line number).
 /// Supports: PRINT, LET, and implicit assignment (IDENT = expr).
@@ -35,6 +36,10 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
                 "RETURN" => { cur.next(); exec_return(vm)?; continue; }
                 "FOR" => { cur.next(); exec_for(vm, &mut cur)?; continue; }
                 "NEXT" => { cur.next(); exec_next(vm, &mut cur)?; continue; }
+                "DATA" => { /* data-only line, ignore in direct mode */ continue; }
+                "READ" => { cur.next(); exec_read(vm, &mut cur)?; continue; }
+                "RESTORE" => { cur.next(); exec_restore(vm, &mut cur)?; continue; }
+                "INPUT" => { cur.next(); exec_input(vm, &mut cur)?; continue; }
                 _ => {}
             }
         }
@@ -45,6 +50,10 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
             Some(Tok::Keyword(TokenKind::Return)) => { cur.next(); exec_return(vm) }
             Some(Tok::Keyword(TokenKind::For)) => { cur.next(); exec_for(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::Next)) => { cur.next(); exec_next(vm, &mut cur) }
+            Some(Tok::Keyword(TokenKind::Data)) => { /* program store only */ Ok(()) }
+            Some(Tok::Keyword(TokenKind::Read)) => { cur.next(); exec_read(vm, &mut cur) }
+            Some(Tok::Keyword(TokenKind::Restore)) => { cur.next(); exec_restore(vm, &mut cur) }
+            Some(Tok::Keyword(TokenKind::Input)) => { cur.next(); exec_input(vm, &mut cur) }
         Some(Tok::Keyword(TokenKind::Let)) => { cur.next(); exec_assignment(vm, &mut cur) },
         Some(Tok::Ident(_)) => exec_assignment(vm, &mut cur),
         Some(Tok::Keyword(TokenKind::Run)) => { cur.next(); vm.run(); Ok(()) }
@@ -82,6 +91,12 @@ fn exec_assignment(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     let name = match cur.next() { Some(Tok::Ident(s)) => s.clone(), _ => bail!("SYNTAX ERROR") };
     match cur.next() { Some(Tok::Symbol('=')) => {}, _ => bail!("SYNTAX ERROR") }
     let val = parse_expression_with_vm(cur, vm).ok_or_else(|| anyhow::anyhow!("SYNTAX ERROR"))?;
+    let is_str = name.ends_with('$');
+    match (&val, is_str) {
+        (Value::Str(_), true) => {}
+        (Value::Number(_), false) => {}
+        _ => bail!("TYPE MISMATCH"),
+    }
     vm.vars.insert(name, val);
     Ok(())
 }
@@ -149,7 +164,9 @@ fn exec_for(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     }
     vm.vars.insert(var.clone(), Value::Number(start));
     let line = vm.current_line.ok_or_else(|| anyhow::anyhow!("FOR without line context"))?;
-    vm.for_stack.push(crate::runtime::ForFrame { var, end, step, start_line: line });
+    // Jump target for NEXT should be the first statement after the FOR line
+    let body_line = vm.next_line_after(line).ok_or_else(|| anyhow::anyhow!("FOR without following line"))?;
+    vm.for_stack.push(crate::runtime::ForFrame { var, end, step, start_line: body_line });
     Ok(())
 }
 
@@ -167,6 +184,92 @@ fn exec_next(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
         vm.jump_to = Some(frame.start_line);
     } else {
         vm.for_stack.pop();
+    }
+    Ok(())
+}
+
+fn exec_read(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
+    // READ A, B, C ...  assign from DATA pool; strings/numbers supported
+    loop {
+        let name = match cur.next() { Some(Tok::Ident(s)) => s.clone(), _ => bail!("SYNTAX ERROR") };
+        let val = match vm.next_data_value() {
+            Some(v) => v,
+            None => { bail!("OUT OF DATA") }
+        };
+        let is_str = name.ends_with('$');
+        match (&val, is_str) {
+            (Value::Str(_), true) => {}
+            (Value::Number(_), false) => {}
+            _ => bail!("TYPE MISMATCH"),
+        }
+        vm.vars.insert(name, val);
+        match cur.peek() {
+            Some(Tok::Symbol(',')) => { cur.next(); continue; }
+            _ => break,
+        }
+    }
+    Ok(())
+}
+
+fn exec_restore(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
+    // RESTORE [line]
+    match cur.peek() {
+        Some(Tok::Number(n)) => { vm.restore_data(Some((*n as i64).clamp(0, u16::MAX as i64) as u16)); }
+        _ => vm.restore_data(None),
+    }
+    Ok(())
+}
+
+fn exec_input(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
+    // INPUT ["prompt"][;|,] var[,var...]
+    let mut prompt: Option<String> = None;
+    if let Some(Tok::String(s)) = cur.peek() { prompt = Some(s.clone()); cur.next(); }
+    if let Some(Tok::Symbol(sym)) = cur.peek() { if *sym==';' || *sym==',' { cur.next(); } }
+
+    // Collect variable names
+    let mut vars: Vec<String> = Vec::new();
+    loop {
+        match cur.next() {
+            Some(Tok::Ident(s)) => vars.push(s.clone()),
+            _ => break,
+        }
+        match cur.peek() {
+            Some(Tok::Symbol(',')) => { cur.next(); continue; }
+            _ => break,
+        }
+    }
+    if vars.is_empty() { bail!("SYNTAX ERROR"); }
+
+    // Prompt and read loop until success
+    loop {
+        if let Some(p) = &prompt { print!("{}", p); } else { print!("? "); }
+        io::stdout().flush().ok();
+        let mut line = String::new();
+        if io::stdin().read_line(&mut line).is_err() { bail!("INPUT ERROR"); }
+        let mut fields: Vec<String> = line.trim_end_matches(['\n','\r']).split(',').map(|s| s.trim().to_string()).collect();
+        if fields.len() < vars.len() { println!("?REDO FROM START"); continue; }
+
+        let mut ok = true;
+        for (i, name) in vars.iter().enumerate() {
+            let raw = fields.get(i).cloned().unwrap_or_default();
+            let is_str = name.ends_with('$');
+            if is_str {
+                // String: allow quoted or raw
+                let val = if raw.starts_with('"') && raw.ends_with('"') && raw.len()>=2 {
+                    Value::Str(raw[1..raw.len()-1].to_string())
+                } else {
+                    Value::Str(raw)
+                };
+                vm.vars.insert(name.clone(), val);
+            } else {
+                // Numeric: must parse as f64
+                match raw.parse::<f64>() {
+                    Ok(n) => { vm.vars.insert(name.clone(), Value::Number(n)); }
+                    Err(_) => { println!("?REDO FROM START"); ok = false; break; }
+                }
+            }
+        }
+        if ok { break; }
     }
     Ok(())
 }
