@@ -89,6 +89,29 @@ A modern Rust recreation of Microsoft 6502 BASIC (8K v1.1) semantics and behavio
     RUN
     ```
 
+- v0.5.0
+  - Flow control and functions:
+    - END/STOP to halt execution.
+    - Functions: LEN, CHR$, ASC, VAL, STR$, ABS, INT, LEFT$, RIGHT$, MID$, RND.
+  - Unified error formatting in program mode: `?ERROR IN <line>` when possible.
+  - Test snippet:
+    ```text
+    10 INPUT "N?" ; N
+    20 PRINT LEN ( STR$ ( N ) ) , CHR$ ( 65 ) , ASC ( "A" )
+    30 IF N THEN STOP
+    35 PRINT "NO STOP"
+    40 END
+    RUN
+    ```
+  - Test snippet (string ops and random):
+    ```text
+    10 PRINT ABS(-3), INT(3.9)
+    20 PRINT LEFT$("HELLO",2), RIGHT$("HELLO",3)
+    30 PRINT MID$("HELLO",2,2)
+    40 PRINT RND(1)
+    RUN
+    ```
+
 ## Build & Run
 ```bash
 cd BASIC-M6502.rs

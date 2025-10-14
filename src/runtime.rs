@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use crate::program::Program;
 use crate::value::Value;
 use crate::tokens::{Tok, TokenKind};
-use crate::lexer::crunch;
 use crate::statements::execute_direct;
 
 /// Virtual machine state: holds program and variables.
@@ -19,10 +18,12 @@ pub struct Vm {
     // DATA/READ cursor
     pub data_line_pos: usize,
     pub data_tok_pos: Option<usize>,
+    // Pseudo RNG state
+    pub rng_seed: u64,
 }
 
 impl Vm {
-    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None } }
+    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None, rng_seed: 0x1234_5678_9abc_def0 } }
 
     /// Run the current program from the lowest line.
     pub fn run(&mut self) {
@@ -63,10 +64,13 @@ impl Vm {
                         break;
                     }
                 }
-                // otherwise execute as immediate; propagate errors as halts
+                // otherwise execute as immediate; propagate errors as halts with line number
                 match execute_direct(self, &s) {
                     Ok(()) => {}
-                    Err(e) => { eprintln!("?{}", e); self.halted = true; }
+                    Err(e) => {
+                        if let Some(cl) = self.current_line { eprintln!("?{} IN {}", e, cl); } else { eprintln!("?{}", e); }
+                        self.halted = true;
+                    }
                 }
                 if self.halted { break; }
                 if self.jump_to.is_some() { break; }
@@ -145,6 +149,14 @@ impl Vm {
             }
         }
         None
+    }
+
+    /// Simple LCG RNG producing [0,1) doubles; not hardware-accurate, but sufficient for RND.
+    pub fn next_rand(&mut self) -> f64 {
+        // Numerical Recipes LCG parameters
+        self.rng_seed = self.rng_seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        let v = (self.rng_seed >> 11) as f64 / ((1u64 << 53) as f64);
+        if v >= 1.0 { 0.999999999999 } else { v }
     }
 }
 

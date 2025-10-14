@@ -40,6 +40,8 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
                 "READ" => { cur.next(); exec_read(vm, &mut cur)?; continue; }
                 "RESTORE" => { cur.next(); exec_restore(vm, &mut cur)?; continue; }
                 "INPUT" => { cur.next(); exec_input(vm, &mut cur)?; continue; }
+                "END" => { vm.halted = true; continue; }
+                "STOP" => { vm.halted = true; continue; }
                 _ => {}
             }
         }
@@ -54,6 +56,8 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
             Some(Tok::Keyword(TokenKind::Read)) => { cur.next(); exec_read(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::Restore)) => { cur.next(); exec_restore(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::Input)) => { cur.next(); exec_input(vm, &mut cur) }
+            Some(Tok::Keyword(TokenKind::End)) => { vm.halted = true; Ok(()) }
+            Some(Tok::Keyword(TokenKind::Stop)) => { vm.halted = true; Ok(()) }
         Some(Tok::Keyword(TokenKind::Let)) => { cur.next(); exec_assignment(vm, &mut cur) },
         Some(Tok::Ident(_)) => exec_assignment(vm, &mut cur),
         Some(Tok::Keyword(TokenKind::Run)) => { cur.next(); vm.run(); Ok(()) }
@@ -246,7 +250,7 @@ fn exec_input(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
         io::stdout().flush().ok();
         let mut line = String::new();
         if io::stdin().read_line(&mut line).is_err() { bail!("INPUT ERROR"); }
-        let mut fields: Vec<String> = line.trim_end_matches(['\n','\r']).split(',').map(|s| s.trim().to_string()).collect();
+        let fields: Vec<String> = line.trim_end_matches(['\n','\r']).split(',').map(|s| s.trim().to_string()).collect();
         if fields.len() < vars.len() { println!("?REDO FROM START"); continue; }
 
         let mut ok = true;

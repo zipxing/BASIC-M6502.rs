@@ -1,5 +1,5 @@
 use crate::lexer::take_leading_line_number;
-use crate::tokens::{Tok, keyword_name, TokenKind};
+use crate::tokens::{Tok, keyword_name};
 use std::collections::BTreeMap;
 
 /// Program line structure, conceptually like [line_no][text]\0.
