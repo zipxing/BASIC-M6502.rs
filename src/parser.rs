@@ -210,7 +210,7 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                         Value::Tab(_) => Value::Number(0.0),
                     },
                     "VAL" => match args.remove(0) {
-                        Value::Str(s) => s
+                        Value::Str(s) => s.trim()
                             .parse::<f64>()
                             .map(Value::Number)
                             .unwrap_or(Value::Number(0.0)),
@@ -218,12 +218,33 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                         Value::Tab(_) => Value::Number(0.0),
                     },
                     "STR$" => match args.remove(0) {
-                        Value::Number(n) => Value::Str(n.to_string()),
+                        Value::Number(n) => {
+                            let s = n.to_string();
+                            let s = if s.ends_with(".0") { s.trim_end_matches(".0").to_string() } else { s };
+                            Value::Str(s)
+                        }
                         Value::Str(s) => Value::Str(s),
                         Value::Tab(_) => Value::Str(String::new()),
                     },
                     "ABS" => Value::Number(args.remove(0).as_number().abs()),
                     "INT" => Value::Number(args.remove(0).as_number().trunc()),
+                    "SGN" => {
+                        let x = args.remove(0).as_number();
+                        Value::Number(if x > 0.0 { 1.0 } else if x < 0.0 { -1.0 } else { 0.0 })
+                    }
+                    "SIN" => Value::Number(args.remove(0).as_number().sin()),
+                    "COS" => Value::Number(args.remove(0).as_number().cos()),
+                    "TAN" => Value::Number(args.remove(0).as_number().tan()),
+                    "ATN" => Value::Number(args.remove(0).as_number().atan()),
+                    "SQR" => {
+                        let v = args.remove(0).as_number();
+                        Value::Number(if v >= 0.0 { v.sqrt() } else { f64::NAN })
+                    }
+                    "EXP" => Value::Number(args.remove(0).as_number().exp()),
+                    "LOG" => {
+                        let v = args.remove(0).as_number();
+                        Value::Number(if v > 0.0 { v.ln() } else { f64::NAN })
+                    }
                     "LEFT$" => {
                         let s = match args.get(0) {
                             Some(Value::Str(s)) => s.clone(),
@@ -293,11 +314,48 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                         Value::Str(slice.iter().collect())
                     }
                     "RND" => {
-                        // RND() -> 0..1; RND(n) mimic: if n<=0 reseed (simple), else new value
+                        // RND() -> next; RND(n): if n<=0 reseed simple; if n>0 next
                         if let Some(v) = args.get(0) {
-                            if v.as_number() <= 0.0 { /* no-op reseed */ }
+                            if v.as_number() <= 0.0 {
+                                // simple reseed using a xor of current seed
+                                vm.rng_seed ^= 0x9E3779B97F4A7C15;
+                            }
                         }
                         Value::Number(vm.next_rand())
+                    }
+                    "SPACE$" => {
+                        let n = args.get(0).map(|v| v.as_number() as isize).unwrap_or(0);
+                        let n = if n <= 0 { 0 } else { n as usize };
+                        Value::Str(" ".repeat(n))
+                    }
+                    "INSTR" => {
+                        // INSTR(string, substring[, start]) 1-based; return 0 if not found
+                        let s = match args.get(0) {
+                            Some(Value::Str(s)) => s.clone(),
+                            Some(Value::Number(n)) => n.to_string(),
+                            _ => String::new(),
+                        };
+                        let sub = match args.get(1) {
+                            Some(Value::Str(s)) => s.clone(),
+                            Some(Value::Number(n)) => n.to_string(),
+                            _ => String::new(),
+                        };
+                        let start = args.get(2).map(|v| v.as_number() as isize).unwrap_or(1);
+                        if sub.is_empty() { Value::Number(1.0) } else {
+                            let chars: Vec<char> = s.chars().collect();
+                            let subchars: Vec<char> = sub.chars().collect();
+                            if start <= 0 { return Some(Value::Number(0.0)); }
+                            let begin = (start as usize).saturating_sub(1);
+                            let mut found = 0usize;
+                            'outer: for i in begin..=chars.len().saturating_sub(subchars.len()) {
+                                for j in 0..subchars.len() {
+                                    if chars[i+j] != subchars[j] { continue 'outer; }
+                                }
+                                found = i + 1; // 1-based
+                                break;
+                            }
+                            Value::Number(found as f64)
+                        }
                     }
                     "TAB" => {
                         let n = args.get(0).map(|v| v.as_number() as usize).unwrap_or(0);

@@ -133,6 +133,27 @@ A modern Rust recreation of Microsoft 6502 BASIC (8K v1.1) semantics and behavio
     RUN
     ```
 
+- v0.7.0
+  - Flow control: STOP prints `?BREAK IN <line>`; CONT resumes from next line.
+  - Math functions: SGN, SIN, COS, TAN, ATN, SQR, EXP, LOG.
+  - String helpers: SPACE$, INSTR; improved STR$/VAL formatting (trim, drop trailing .0).
+  - Test snippet (STOP/CONT):
+    ```text
+    10 PRINT "A": STOP
+    20 PRINT "B"
+    RUN
+    CONT
+    ```
+  - Test snippet (functions):
+    ```text
+    PRINT SGN(-3), SGN(0), SGN(2)
+    PRINT SIN(0), COS(0)
+    PRINT SQR(4), EXP(1)
+    PRINT "[";SPACE$(5);"]"
+    PRINT INSTR("HELLO","LL"), INSTR("HELLO","X"), INSTR("HELLO","L",3)
+    PRINT STR$(2), STR$(2.5), VAL("  3.14 ")
+    ```
+
 ## Build & Run
 ```bash
 cd BASIC-M6502.rs

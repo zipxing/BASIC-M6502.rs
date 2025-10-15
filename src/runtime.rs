@@ -28,20 +28,26 @@ pub struct Vm {
 impl Vm {
     pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None, rng_seed: 0x1234_5678_9abc_def0, debug: true } }
 
-    /// Run the current program from the lowest line.
-    pub fn run(&mut self) {
-        // Reset variables and DATA cursor at start of RUN
+    /// Prepare a fresh run: clear variables and reset DATA pointer.
+    pub fn prepare_full_run(&mut self) {
         self.vars.clear();
         self.restore_data(None);
         self.jump_to = None;
+    }
 
+    /// Run the current program (respects existing jump_to/current_line for CONT).
+    pub fn run(&mut self) {
         let lines: Vec<u16> = self.program.lines.keys().cloned().collect();
         let mut i = 0usize;
         self.halted = false;
         self.line_order = lines.clone();
         self.gosub_stack.clear();
         self.for_stack.clear();
-        // DATA cursor is already reset above
+        // DATA cursor unchanged here; RUN command should call prepare_full_run() beforehand
+        // If a resume target exists (e.g., CONT after STOP), start there
+        if let Some(dst) = self.jump_to.take() {
+            if let Some(pos) = lines.iter().position(|x| *x == dst) { i = pos; }
+        }
         while i < lines.len() {
             let ln = lines[i];
             self.current_line = Some(ln);
@@ -87,7 +93,10 @@ impl Vm {
                 i += 1;
             }
         }
-        self.current_line = None;
+        // Preserve current_line on halt (e.g., STOP) to allow CONT to resume
+        if !self.halted {
+            self.current_line = None;
+        }
     }
 
     pub fn next_line_after(&self, ln: u16) -> Option<u16> {

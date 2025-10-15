@@ -44,8 +44,9 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
                 "INPUT" => { cur.next(); exec_input(vm, &mut cur)?; continue; }
                 "SAVE" => { cur.next(); exec_save(vm, &mut cur)?; continue; }
                 "LOAD" => { cur.next(); exec_load(vm, &mut cur)?; continue; }
+                "CONT" => { cur.next(); exec_cont(vm)?; continue; }
                 "END" => { vm.halted = true; continue; }
-                "STOP" => { vm.halted = true; continue; }
+                "STOP" => { if let Some(cl)=vm.current_line { eprintln!("?BREAK IN {}", cl); } vm.halted = true; continue; }
                 _ => {}
             }
         }
@@ -63,11 +64,17 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
             Some(Tok::Keyword(TokenKind::Input)) => { cur.next(); exec_input(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::Save)) => { cur.next(); exec_save(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::Load)) => { cur.next(); exec_load(vm, &mut cur) }
+            Some(Tok::Keyword(TokenKind::Cont)) => { cur.next(); exec_cont(vm) }
             Some(Tok::Keyword(TokenKind::End)) => { vm.halted = true; Ok(()) }
-            Some(Tok::Keyword(TokenKind::Stop)) => { vm.halted = true; Ok(()) }
+            Some(Tok::Keyword(TokenKind::Stop)) => {
+                if let Some(cl)=vm.current_line {
+                    eprintln!("?BREAK IN {}", cl);
+                    if let Some(nl) = vm.next_line_after(cl) { vm.jump_to = Some(nl); }
+                }
+                vm.halted = true; Ok(()) }
         Some(Tok::Keyword(TokenKind::Let)) => { cur.next(); exec_assignment(vm, &mut cur) },
         Some(Tok::Ident(_)) => exec_assignment(vm, &mut cur),
-        Some(Tok::Keyword(TokenKind::Run)) => { cur.next(); vm.run(); Ok(()) }
+            Some(Tok::Keyword(TokenKind::Run)) => { cur.next(); vm.prepare_full_run(); vm.run(); Ok(()) }
         Some(Tok::Keyword(TokenKind::List)) => { cur.next(); vm.program.list(); Ok(()) }
         Some(Tok::Keyword(TokenKind::Clear)) => { cur.next(); vm.vars.clear(); println!("READY."); Ok(()) }
         Some(Tok::Keyword(TokenKind::New)) => { cur.next(); vm.vars.clear(); vm.program.clear(); println!("READY."); Ok(()) }
@@ -121,10 +128,12 @@ fn exec_print(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
                 continue;
             }
             Some(Tok::Symbol(';')) => {
-                // suppress newline and finish immediately
+                // item separator: no extra space; only suppress newline if it's the terminal semicolon
                 cur.next();
-                want_newline = false;
-                break;
+                match cur.peek() {
+                    None | Some(Tok::Symbol(':')) => { want_newline = false; break },
+                    _ => continue,
+                }
             }
             _ => break,
         }
@@ -312,6 +321,13 @@ fn exec_load(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
         let toks = crate::lexer::crunch(rest);
         vm.program.insert_line(ln, toks);
     }
+    Ok(())
+}
+
+fn exec_cont(vm: &mut Vm) -> Result<()> {
+    // CONT: resume program execution from next line after BREAK
+    vm.halted = false;
+    vm.run();
     Ok(())
 }
 fn exec_read(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {

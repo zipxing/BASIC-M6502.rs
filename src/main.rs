@@ -17,6 +17,7 @@ use std::io::{self, Write};
 /// - First cut: minimal REPL with LET, PRINT, basic expressions and string concat.
 fn main() -> Result<()> {
     let mut vm = runtime::Vm::new();
+    vm.debug = false;
 
     println!("M6502 BASIC (Rust) — initial REPL; type HELP for help");
 
