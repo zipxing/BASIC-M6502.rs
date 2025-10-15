@@ -168,6 +168,38 @@ A modern Rust recreation of Microsoft 6502 BASIC (8K v1.1) semantics and behavio
     CONT
     ```
 
+- v0.9.0
+  - Unified error handling polish:
+    - Program mode prints `?ERROR IN <line>`; READY mode prints `?ERROR`.
+    - Expression-level errors surfaced immediately; no placeholder output (e.g., no stray `0`).
+    - Arrays: `UNDEFINED ARRAY` vs `BAD SUBSCRIPT` (non-positive/out-of-range) distinguished.
+    - PRINT: incomplete expressions (e.g., `PRINT (`) raise `?SYNTAX ERROR`.
+    - Program input: support multiple numbered lines in one input using `:` (e.g., `10 ... :20 ...`).
+  - Test snippets:
+    ```text
+    REM Incomplete PRINT expression (program mode)
+    10 PRINT (
+    RUN
+
+    REM Out-of-data across multiple numbered lines in one input
+    10 DATA 1:20 READ A:30 READ B:40 PRINT B
+    LIST
+    RUN
+
+    REM Arrays: BAD SUBSCRIPT vs UNDEFINED ARRAY (program mode)
+    10 DIM A(2):20 PRINT A(3)
+    RUN
+    NEW
+    10 PRINT A(1)
+    RUN
+
+    REM Direct mode (READY): errors printed immediately
+    DIM A(2)
+    PRINT A(3)
+    PRINT A(1)
+    PRINT (
+    ```
+
 ## Build & Run
 ```bash
 cd BASIC-M6502.rs
