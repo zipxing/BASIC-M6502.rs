@@ -8,6 +8,7 @@ thiserror = "1"
 lazy_static = "1"
 regex = "1"
 anyhow = "1"
+ctrlc = "3"
 
 [profile.dev]
 opt-level = 0

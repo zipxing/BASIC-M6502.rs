@@ -154,6 +154,20 @@ A modern Rust recreation of Microsoft 6502 BASIC (8K v1.1) semantics and behavio
     PRINT STR$(2), STR$(2.5), VAL("  3.14 ")
     ```
 
+- v0.8.0
+  - Ctrl-C handling aligned with STOP/CONT semantics:
+    - While running: `^C` triggers `?BREAK IN <line>`, remembers next line for CONT, halts.
+    - At READY: prints `^C` and continues.
+    - Implementation via `ctrlc` crate + cooperative checks inside VM run loop.
+  - Test snippet:
+    ```text
+    10 PRINT "LOOP"
+    20 GOTO 10
+    RUN
+    ^C
+    CONT
+    ```
+
 ## Build & Run
 ```bash
 cd BASIC-M6502.rs

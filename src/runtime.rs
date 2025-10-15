@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::fs::OpenOptions;
 use std::io::Write as IoWrite;
 use crate::program::Program;
@@ -23,10 +24,11 @@ pub struct Vm {
     // Pseudo RNG state
     pub rng_seed: u64,
     pub debug: bool,
+    pub interrupt_flag: Option<Arc<AtomicBool>>,
 }
 
 impl Vm {
-    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None, rng_seed: 0x1234_5678_9abc_def0, debug: true } }
+    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None, rng_seed: 0x1234_5678_9abc_def0, debug: true, interrupt_flag: None } }
 
     /// Prepare a fresh run: clear variables and reset DATA pointer.
     pub fn prepare_full_run(&mut self) {
@@ -51,6 +53,15 @@ impl Vm {
         while i < lines.len() {
             let ln = lines[i];
             self.current_line = Some(ln);
+            // Poll Ctrl-C interrupt flag while running
+            if let Some(flag) = &self.interrupt_flag {
+                if flag.swap(false, Ordering::SeqCst) {
+                    self.log_debug(format!("[RUN] Ctrl-C at line {}", ln));
+                    eprintln!("?BREAK IN {}", ln);
+                    if let Some(nl) = self.next_line_after(ln) { self.jump_to = Some(nl); }
+                    self.halted = true;
+                }
+            }
             let Some(pl) = self.program.lines.get(&ln) else { i += 1; continue };
             // Split by ':' for multiple statements per line (simple pass over symbols)
             let mut stmt: Vec<Tok> = Vec::new();
@@ -82,6 +93,8 @@ impl Vm {
                     }
                 }
                 if self.halted { break; }
+                // Also allow breaking mid-line if interrupt was raised
+                if let Some(flag) = &self.interrupt_flag { if flag.load(Ordering::SeqCst) { break; } }
                 if self.jump_to.is_some() { break; }
             }
 
@@ -177,6 +190,10 @@ impl Vm {
         if let Ok(mut f) = OpenOptions::new().create(true).append(true).open("debug.log") {
             let _ = writeln!(f, "{}", s.as_ref());
         }
+    }
+
+    pub fn set_interrupt_flag(&mut self, flag: Arc<AtomicBool>) {
+        self.interrupt_flag = Some(flag);
     }
 }
 
