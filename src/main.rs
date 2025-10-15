@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     let mut vm = runtime::Vm::new();
 
     // switch off debug mode
-    vm.debug = false;
+    // vm.debug = false;
 
     // Ctrl-C handling: convert to STOP/CONT semantics in run loop
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -82,14 +82,55 @@ fn handle_line(vm: &mut runtime::Vm, src: &str) -> Result<()> {
         return Ok(())
     }
 
-    if let Some((line_no, rest)) = program::parse_leading_line_number(s) {
-        if rest.trim().is_empty() {
-            // Empty content with a line number => delete that line.
-            vm.program.delete_line(line_no);
-            return Ok(())
+    if let Some((first_no, rest)) = program::parse_leading_line_number(s) {
+        // Support multiple line entries in one input: 10 ... :20 ... :30 ...
+        // Split by ':' then treat a chunk starting with digits as a new line.
+        let mut parts: Vec<&str> = Vec::new();
+        let mut start = 0usize;
+        let bytes = rest.as_bytes();
+        for i in 0..bytes.len() {
+            if bytes[i] as char == ':' {
+                parts.push(&rest[start..i]);
+                start = i + 1;
+            }
         }
-        let tokens = lexer::crunch(rest);
-        vm.program.insert_line(line_no, tokens);
+        parts.push(&rest[start..]);
+
+        // First chunk belongs to first_no
+        let first_chunk = parts.get(0).map(|s| s.trim()).unwrap_or("");
+        if first_chunk.is_empty() {
+            vm.program.delete_line(first_no);
+        } else {
+            let tokens = lexer::crunch(first_chunk);
+            vm.program.insert_line(first_no, tokens);
+        }
+
+        // Subsequent chunks like "20 READ A" → parse leading line number
+        for chunk in parts.into_iter().skip(1) {
+            let c = chunk.trim_start();
+            if c.is_empty() { continue; }
+            if let Some((ln, stmt)) = program::parse_leading_line_number(c) {
+                if stmt.trim().is_empty() {
+                    vm.program.delete_line(ln);
+                } else {
+                    let toks = lexer::crunch(stmt);
+                    vm.program.insert_line(ln, toks);
+                }
+            } else {
+                // If no leading number after ':', treat as same line's additional statements
+                // Append to the previous line by concatenating tokens with ':'
+                // Simpler: insert as part of first_no line tail
+                let mut toks = lexer::crunch(":");
+                let mut more = lexer::crunch(c);
+                toks.append(&mut more);
+                // Re-read existing tokens and append
+                if let Some(mut pl) = vm.program.lines.get(&first_no).cloned() {
+                    let mut combined = pl.tokens;
+                    combined.append(&mut toks);
+                    vm.program.insert_line(first_no, combined);
+                }
+            }
+        }
         return Ok(())
     }
 

@@ -71,7 +71,24 @@ pub fn crunch(src: &str) -> Vec<Tok> {
             }
         }
     }
-    out
+    // Post-process: merge "GO TO" into GOTO for compatibility
+    let mut merged: Vec<Tok> = Vec::new();
+    let mut j = 0usize;
+    while j < out.len() {
+        if j + 1 < out.len() {
+            let is_go = matches!(&out[j], Tok::Ident(s) if s == "GO");
+            let is_to_kw = matches!(&out[j+1], Tok::Keyword(TokenKind::To));
+            let is_to_id = matches!(&out[j+1], Tok::Ident(s) if s == "TO");
+            if is_go && (is_to_kw || is_to_id) {
+                merged.push(Tok::Keyword(TokenKind::Goto));
+                j += 2;
+                continue;
+            }
+        }
+        merged.push(out[j].clone());
+        j += 1;
+    }
+    merged
 }
 
 /// Parse an optional leading line number. Returns (line_no, rest).

@@ -13,6 +13,14 @@ pub enum BasicError {
     ReturnWithoutGosub,
     #[error("UNDEFINED VARIABLE: {0}")]
     UndefVar(String),
+    #[error("OUT OF DATA")]
+    OutOfData,
+    #[error("BAD SUBSCRIPT")]
+    BadSubscript,
+    #[error("UNDEFINED ARRAY")]
+    UndefinedArray,
+    #[error("IO ERROR")]
+    Io,
 }
 
 pub type Result<T> = std::result::Result<T, BasicError>;

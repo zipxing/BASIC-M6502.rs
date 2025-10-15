@@ -25,10 +25,15 @@ pub struct Vm {
     pub rng_seed: u64,
     pub debug: bool,
     pub interrupt_flag: Option<Arc<AtomicBool>>,
+    // Arrays: name -> descriptor
+    pub arrays: HashMap<String, ArrayValue>,
+    pub current_stmt_index: usize,
+    pub inline_stmt_restart: Option<usize>,
+    pub error_override: Option<crate::errors::BasicError>,
 }
 
 impl Vm {
-    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None, rng_seed: 0x1234_5678_9abc_def0, debug: true, interrupt_flag: None } }
+    pub fn new() -> Self { Self { program: Program::default(), vars: HashMap::new(), halted: false, jump_to: None, gosub_stack: Vec::new(), for_stack: Vec::new(), current_line: None, line_order: Vec::new(), data_line_pos: 0, data_tok_pos: None, rng_seed: 0x1234_5678_9abc_def0, debug: true, interrupt_flag: None, arrays: HashMap::new(), current_stmt_index: 0, inline_stmt_restart: None, error_override: None } }
 
     /// Prepare a fresh run: clear variables and reset DATA pointer.
     pub fn prepare_full_run(&mut self) {
@@ -75,8 +80,13 @@ impl Vm {
             }
             if !stmt.is_empty() { stmts.push(stmt); }
 
-            for s in stmts {
+            // If there is an inline restart point (e.g., NEXT in same line), start from that stmt index
+            let mut si = self.inline_stmt_restart.take().unwrap_or(0);
+            while si < stmts.len() {
+                let s = &stmts[si];
                 if s.is_empty() { continue; }
+                self.current_stmt_index = si;
+                self.log_debug(format!("[RUN] line {} stmt {}/{}", ln, si, stmts.len()));
                 // handle minimal GOTO inline: [GOTO] <number>
                 if let Some(Tok::Keyword(TokenKind::Goto)) = s.get(0) {
                     if let Some(Tok::Number(n)) = s.get(1) {
@@ -92,10 +102,17 @@ impl Vm {
                         self.halted = true;
                     }
                 }
+                // If expression evaluation set an error override (e.g., BAD SUBSCRIPT), raise it here with line info.
+                if let Some(err) = self.error_override.take() {
+                    if let Some(cl) = self.current_line { eprintln!("?{} IN {}", err, cl); } else { eprintln!("?{}", err); }
+                    self.halted = true;
+                    break;
+                }
                 if self.halted { break; }
                 // Also allow breaking mid-line if interrupt was raised
                 if let Some(flag) = &self.interrupt_flag { if flag.load(Ordering::SeqCst) { break; } }
                 if self.jump_to.is_some() { break; }
+                si += 1;
             }
 
             if self.halted { break; }
@@ -130,6 +147,7 @@ pub struct ForFrame {
     pub end: f64,
     pub step: f64,
     pub start_line: u16,
+    pub restart_stmt_index: usize,
 }
 
 impl Vm {
@@ -194,6 +212,61 @@ impl Vm {
 
     pub fn set_interrupt_flag(&mut self, flag: Arc<AtomicBool>) {
         self.interrupt_flag = Some(flag);
+    }
+
+    pub fn dim_array(&mut self, name: String, dims: Vec<usize>, is_string: bool) {
+        let total = dims.iter().copied().product::<usize>();
+        let data = if is_string { (0..total).map(|_| Value::Str(String::new())).collect() } else { (0..total).map(|_| Value::Number(0.0)).collect() };
+        self.arrays.insert(name, ArrayValue { dims, is_string, data });
+    }
+
+    pub fn get_array_element(&self, name: &str, idxs: &[usize]) -> Option<Value> {
+        let av = self.arrays.get(name)?;
+        let off = av.linear_index(idxs)?;
+        av.data.get(off).cloned()
+    }
+
+    pub fn set_array_element(&mut self, name: &str, idxs: &[usize], val: Value) -> Result<(), &'static str> {
+        let av = self.arrays.get(name).ok_or("UNDEFINED ARRAY")?;
+        if av.is_string {
+            if !matches!(val, Value::Str(_)) { return Err("TYPE MISMATCH"); }
+        } else {
+            if !matches!(val, Value::Number(_)) { return Err("TYPE MISMATCH"); }
+        }
+        let off = av.linear_index(idxs).ok_or("BAD SUBSCRIPT")?;
+        if let Some(avm) = self.arrays.get_mut(name) {
+            avm.data[off] = val;
+            Ok(())
+        } else { Err("UNDEFINED ARRAY") }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ArrayValue {
+    pub dims: Vec<usize>,
+    pub is_string: bool,
+    pub data: Vec<Value>,
+}
+
+impl ArrayValue {
+    // BASIC subscripts are 1-based in this simplified model
+    pub fn linear_index(&self, idxs: &[usize]) -> Option<usize> {
+        if idxs.len() != self.dims.len() { return None; }
+        // compute strides
+        let mut strides = vec![1usize; self.dims.len()];
+        for i in (0..self.dims.len()).rev() {
+            if i + 1 < self.dims.len() {
+                strides[i] = strides[i+1] * self.dims[i+1];
+            }
+        }
+        let mut off = 0usize;
+        for (i, &sub) in idxs.iter().enumerate() {
+            if sub == 0 { return None; }
+            let zero_based = sub - 1;
+            if zero_based >= self.dims[i] { return None; }
+            off += zero_based * strides[i];
+        }
+        Some(off)
     }
 }
 

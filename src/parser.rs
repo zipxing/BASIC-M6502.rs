@@ -169,7 +169,7 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
         Tok::Number(n) => Some(Value::Number(*n)),
         Tok::String(s) => Some(Value::Str(s.clone())),
         Tok::Ident(name) => {
-            // Function call? e.g., LEN(x), CHR$(n), ASC(s), VAL(s), STR$(n)
+            // Function call or array indexing? e.g., LEN(x) / A(5)
             if let Some(Tok::Symbol('(')) = cur.peek() {
                 cur.next();
                 // Support 1-3 arguments (for MID$)
@@ -361,7 +361,24 @@ fn parse_factor_with_vm(cur: &mut Cursor, vm: &mut Vm) -> Option<Value> {
                         let n = args.get(0).map(|v| v.as_number() as usize).unwrap_or(0);
                         Value::Tab(n)
                     }
-                    _ => return None,
+                    _ => {
+                        // Treat as array indexing: NAME(idx[,idx...])
+                        let idxs: Vec<usize> = args.iter().map(|v| {
+                            let x = v.as_number(); if x <= 0.0 { 0usize } else { x as usize }
+                        }).collect();
+                        if idxs.iter().any(|&k| k==0) {
+                            vm.error_override = Some(crate::errors::BasicError::BadSubscript);
+                            Value::Number(0.0)
+                        } else if !vm.arrays.contains_key(&up) {
+                            vm.error_override = Some(crate::errors::BasicError::UndefinedArray);
+                            Value::Number(0.0)
+                        } else {
+                            match vm.get_array_element(&up, &idxs) {
+                                Some(v) => v,
+                                None => { vm.error_override = Some(crate::errors::BasicError::BadSubscript); Value::Number(0.0) }
+                            }
+                        }
+                    }
                 };
                 Some(res)
             } else {

@@ -4,6 +4,7 @@ use crate::tokens::{Tok, TokenKind};
 use crate::parser::{Cursor, parse_expression_with_vm};
 use crate::value::Value;
 use std::io::{self, Write};
+use crate::errors::BasicError;
 use std::fs;
 
 /// Execute immediate statements (no line number).
@@ -78,9 +79,14 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
         Some(Tok::Keyword(TokenKind::List)) => { cur.next(); vm.program.list(); Ok(()) }
         Some(Tok::Keyword(TokenKind::Clear)) => { cur.next(); vm.vars.clear(); println!("READY."); Ok(()) }
         Some(Tok::Keyword(TokenKind::New)) => { cur.next(); vm.vars.clear(); vm.program.clear(); println!("READY."); Ok(()) }
-        Some(Tok::Keyword(TokenKind::Dim)) => { bail!("DIM not implemented") }
+        Some(Tok::Keyword(TokenKind::Dim)) => { cur.next(); exec_dim(vm, &mut cur) }
         _ => bail!("SYNTAX ERROR"),
         }?;
+        // After executing a part in direct mode, surface any deferred expression error
+        if let Some(err) = vm.error_override.take() {
+            eprintln!("?{}", err);
+            break;
+        }
     }
     Ok(())
 }
@@ -95,7 +101,11 @@ fn exec_print(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     let mut want_newline = true;
     loop {
         vm.log_debug(format!("[PRINT] start expr at tok {}", cur.i));
+        let mut consumed = false;
+        let start_i = cur.i;
         if let Some(val) = parse_expression_with_vm(cur, vm) {
+            // If expression signaled an error (e.g., BAD SUBSCRIPT), don't print placeholder value
+            if vm.error_override.is_some() { return Ok(()); }
             if !first { print!(" "); col += 1; }
             match val {
                 Value::Number(n) => { vm.log_debug(format!("[PRINT] number {}", n)); let s = format!("{}", n); col += s.len(); print!("{}", s); }
@@ -107,13 +117,23 @@ fn exec_print(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
             }
             io::stdout().flush().ok();
             first = false;
+            consumed = true;
         } else {
+            // If parser advanced but failed to produce a value, it's a syntax error (e.g., PRINT () or PRINT ()
+            if cur.i != start_i {
+                return Err(BasicError::Syntax.into());
+            }
             // Fallback: directly print literal when expression parser refuses (e.g., edge tokens)
             match cur.peek() {
-                Some(Tok::Number(n)) => { vm.log_debug(format!("[PRINT] fallback number {}", n)); cur.next(); let s = format!("{}", n); if !first { print!(" "); col+=1; } col += s.len(); print!("{}", s); first=false; }
-                Some(Tok::String(sv)) => { vm.log_debug(format!("[PRINT] fallback str {}", sv)); cur.next(); if !first { print!(" "); col+=1; } col += sv.len(); print!("{}", sv); first=false; }
+                Some(Tok::Number(n)) => { vm.log_debug(format!("[PRINT] fallback number {}", n)); cur.next(); let s = format!("{}", n); if !first { print!(" "); col+=1; } col += s.len(); print!("{}", s); first=false; consumed = true; }
+                Some(Tok::String(sv)) => { vm.log_debug(format!("[PRINT] fallback str {}", sv)); cur.next(); if !first { print!(" "); col+=1; } col += sv.len(); print!("{}", sv); first=false; consumed = true; }
                 _ => {}
             }
+        }
+        // If未消费任何表达式且下一个不是分隔符/结束，判为语法错误
+        match cur.peek() {
+            Some(Tok::Symbol(',')) | Some(Tok::Symbol(';')) | None => {}
+            _ => { if !consumed { return Err(BasicError::Syntax.into()); } }
         }
         match cur.peek() {
             Some(Tok::Symbol(',')) => {
@@ -147,16 +167,37 @@ fn exec_print(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
 }
 
 fn exec_assignment(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
+    // IDENT or IDENT '(' subscripts ')'
     let name = match cur.next() { Some(Tok::Ident(s)) => s.clone(), _ => bail!("SYNTAX ERROR") };
-    match cur.next() { Some(Tok::Symbol('=')) => {}, _ => bail!("SYNTAX ERROR") }
-    let val = parse_expression_with_vm(cur, vm).ok_or_else(|| anyhow::anyhow!("SYNTAX ERROR"))?;
-    let is_str = name.ends_with('$');
-    match (&val, is_str) {
-        (Value::Str(_), true) => {}
-        (Value::Number(_), false) => {}
-        _ => bail!("TYPE MISMATCH"),
+    let is_indexed = matches!(cur.peek(), Some(Tok::Symbol('(')));
+    if is_indexed {
+        cur.next(); // '('
+        let mut idxs: Vec<usize> = Vec::new();
+        loop {
+            let v = parse_expression_with_vm(cur, vm).ok_or_else(|| anyhow::anyhow!("SYNTAX ERROR"))?.as_number();
+            if v <= 0.0 { bail!("BAD SUBSCRIPT") }
+            idxs.push(v as usize);
+            match cur.next() { Some(Tok::Symbol(',')) => continue, Some(Tok::Symbol(')')) => break, _ => bail!("SYNTAX ERROR") }
+        }
+        match cur.next() { Some(Tok::Symbol('=')) => {}, _ => bail!("SYNTAX ERROR") }
+        let val = parse_expression_with_vm(cur, vm).ok_or_else(|| anyhow::anyhow!("SYNTAX ERROR"))?;
+        let nm = name.clone();
+        vm.set_array_element(&nm, &idxs, val).map_err(|e| match e {
+            "UNDEFINED ARRAY" => BasicError::UndefinedArray.into(),
+            "BAD SUBSCRIPT" => BasicError::BadSubscript.into(),
+            _ => anyhow::anyhow!(e),
+        })?;
+    } else {
+        match cur.next() { Some(Tok::Symbol('=')) => {}, _ => bail!("SYNTAX ERROR") }
+        let val = parse_expression_with_vm(cur, vm).ok_or_else(|| anyhow::anyhow!("SYNTAX ERROR"))?;
+        let is_str = name.ends_with('$');
+        match (&val, is_str) {
+            (Value::Str(_), true) => {}
+            (Value::Number(_), false) => {}
+            _ => bail!("TYPE MISMATCH"),
+        }
+        vm.vars.insert(name, val);
     }
-    vm.vars.insert(name, val);
     Ok(())
 }
 
@@ -223,9 +264,10 @@ fn exec_for(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     }
     vm.vars.insert(var.clone(), Value::Number(start));
     let line = vm.current_line.ok_or_else(|| anyhow::anyhow!("FOR without line context"))?;
-    // Jump target for NEXT should be the first statement after the FOR line
-    let body_line = vm.next_line_after(line).ok_or_else(|| anyhow::anyhow!("FOR without following line"))?;
-    vm.for_stack.push(crate::runtime::ForFrame { var, end, step, start_line: body_line });
+    // 下次从本行 FOR 之后的语句继续（若本行没有后续语句，则在该行不会执行，随后进入下一行）
+    let restart_stmt = vm.current_stmt_index + 1;
+    vm.inline_stmt_restart = Some(restart_stmt);
+    vm.for_stack.push(crate::runtime::ForFrame { var, end, step, start_line: line, restart_stmt_index: restart_stmt });
     Ok(())
 }
 
@@ -240,6 +282,8 @@ fn exec_next(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     vm.vars.insert(frame.var.clone(), Value::Number(newv));
     let continue_loop = if frame.step >= 0.0 { newv <= frame.end } else { newv >= frame.end };
     if continue_loop {
+        // 回到 FOR 所在行，并从该行下一条语句继续
+        vm.inline_stmt_restart = Some(frame.restart_stmt_index);
         vm.jump_to = Some(frame.start_line);
     } else {
         vm.for_stack.pop();
@@ -330,13 +374,39 @@ fn exec_cont(vm: &mut Vm) -> Result<()> {
     vm.run();
     Ok(())
 }
+
+fn exec_dim(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
+    // DIM A(10), B$(3,4)
+    loop {
+        let name = match cur.next() { Some(Tok::Ident(s)) => s.clone(), _ => bail!("SYNTAX ERROR") };
+        let is_string = name.ends_with('$');
+        match cur.next() { Some(Tok::Symbol('(')) => {}, _ => bail!("SYNTAX ERROR") }
+        let mut dims: Vec<usize> = Vec::new();
+        loop {
+            let n = match cur.next() { Some(Tok::Number(v)) => *v as isize, _ => bail!("SYNTAX ERROR") };
+            if n <= 0 { bail!("SYNTAX ERROR") }
+            dims.push(n as usize);
+            match cur.next() {
+                Some(Tok::Symbol(',')) => continue,
+                Some(Tok::Symbol(')')) => break,
+                _ => bail!("SYNTAX ERROR"),
+            }
+        }
+        vm.dim_array(name, dims, is_string);
+        match cur.peek() {
+            Some(Tok::Symbol(',')) => { cur.next(); continue; }
+            _ => break,
+        }
+    }
+    Ok(())
+}
 fn exec_read(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
     // READ A, B, C ...  assign from DATA pool; strings/numbers supported
     loop {
         let name = match cur.next() { Some(Tok::Ident(s)) => s.clone(), _ => bail!("SYNTAX ERROR") };
         let val = match vm.next_data_value() {
             Some(v) => v,
-            None => { bail!("OUT OF DATA") }
+            None => { return Err(BasicError::OutOfData.into()); }
         };
         let is_str = name.ends_with('$');
         match (&val, is_str) {
