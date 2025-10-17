@@ -200,6 +200,17 @@ A modern Rust recreation of Microsoft 6502 BASIC (8K v1.1) semantics and behavio
     PRINT (
     ```
 
+- v1.0.0
+  - REM 注释支持：遇到 `REM` 后，行内剩余内容视为注释（不支持单引号 `'` 简写）。
+  - 统一错误处理与直接模式/程序模式输出行为稳定，准备发布 1.0。
+  - 测试片段：
+    ```text
+    10 REM this is a comment
+    20 PRINT 1
+    LIST
+    RUN
+    ```
+
 ## Build & Run
 ```bash
 cd BASIC-M6502.rs
