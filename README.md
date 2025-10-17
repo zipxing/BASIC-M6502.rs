@@ -226,6 +226,10 @@ PRINT "HELLO"+123
 - DATA/READ/RESTORE, INPUT; string functions subset
 - Compatibility polish and tests
 
+- Deferred (post-1.0)
+  - TXTTAB-like compact program storage (byte-packed crunched text + line index)
+  - PEEK/POKE/USR hooks (virtual memory model and safe host callbacks)
+
 ## License
 This subproject is licensed under the MIT License (see `LICENSE`).
 

@@ -124,7 +124,7 @@ fn handle_line(vm: &mut runtime::Vm, src: &str) -> Result<()> {
                 let mut more = lexer::crunch(c);
                 toks.append(&mut more);
                 // Re-read existing tokens and append
-                if let Some(mut pl) = vm.program.lines.get(&first_no).cloned() {
+                if let Some(pl) = vm.program.lines.get(&first_no).cloned() {
                     let mut combined = pl.tokens;
                     combined.append(&mut toks);
                     vm.program.insert_line(first_no, combined);

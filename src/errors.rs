@@ -2,6 +2,7 @@ use thiserror::Error;
 
 /// Unified error type with BASIC-like short messages.
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum BasicError {
     #[error("SYNTAX ERROR")]
     Syntax,
