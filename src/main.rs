@@ -1,26 +1,28 @@
-mod tokens;
-mod value;
 mod errors;
 mod lexer;
 mod parser;
 mod program;
 mod runtime;
 mod statements;
+mod tokens;
+mod value;
 
 use anyhow::Result;
 use std::io::{self, Write};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// Notes:
 /// - Goal: Recreate 6502 BASIC semantics/behavior in Rust.
 /// - Layout: modules for lexing, parsing/eval, program storage (line/statement),
 ///   runtime (variables/arrays/strings), and statements.
-/// - First cut: minimal REPL with LET, PRINT, basic expressions and string concat.
 fn main() -> Result<()> {
     let mut vm = runtime::Vm::new();
 
     // switch off debug mode
-    // vm.debug = false;
+    vm.debug = false;
 
     // Ctrl-C handling: convert to STOP/CONT semantics in run loop
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -40,7 +42,9 @@ fn main() -> Result<()> {
             if let Some(cl) = vm.current_line {
                 vm.log_debug(format!("[REPL] Ctrl-C at line {}", cl));
                 eprintln!("?BREAK IN {}", cl);
-                if let Some(nl) = vm.next_line_after(cl) { vm.jump_to = Some(nl); }
+                if let Some(nl) = vm.next_line_after(cl) {
+                    vm.jump_to = Some(nl);
+                }
                 vm.halted = true;
                 continue;
             } else {
@@ -62,7 +66,7 @@ fn main() -> Result<()> {
             println!("BYE");
             break;
         }
-        let line = line.trim_end_matches(['\n','\r']).to_string();
+        let line = line.trim_end_matches(['\n', '\r']).to_string();
 
         if let Err(e) = handle_line(&mut vm, &line) {
             eprintln!("?{}", e);
@@ -79,7 +83,7 @@ fn handle_line(vm: &mut runtime::Vm, src: &str) -> Result<()> {
     //  3) immediate statement: execute now (PRINT, LET, ...)
     let s = src.trim();
     if s.is_empty() {
-        return Ok(())
+        return Ok(());
     }
 
     if let Some((first_no, rest)) = program::parse_leading_line_number(s) {
@@ -108,7 +112,9 @@ fn handle_line(vm: &mut runtime::Vm, src: &str) -> Result<()> {
         // Subsequent chunks like "20 READ A" → parse leading line number
         for chunk in parts.into_iter().skip(1) {
             let c = chunk.trim_start();
-            if c.is_empty() { continue; }
+            if c.is_empty() {
+                continue;
+            }
             if let Some((ln, stmt)) = program::parse_leading_line_number(c) {
                 if stmt.trim().is_empty() {
                     vm.program.delete_line(ln);
@@ -131,7 +137,7 @@ fn handle_line(vm: &mut runtime::Vm, src: &str) -> Result<()> {
                 }
             }
         }
-        return Ok(())
+        return Ok(());
     }
 
     // Immediate statement: parse and execute.
