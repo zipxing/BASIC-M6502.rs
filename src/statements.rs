@@ -53,6 +53,7 @@ pub fn execute_direct(vm: &mut Vm, toks: &[Tok]) -> Result<()> {
         }
         match cur.peek() {
             Some(Tok::Keyword(TokenKind::Print)) => exec_print(vm, &mut cur),
+            Some(Tok::Keyword(TokenKind::Rem)) => { /* ignore rest of this part */ Ok(()) },
             Some(Tok::Keyword(TokenKind::If)) => { cur.next(); exec_if(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::Gosub)) => { cur.next(); exec_gosub(vm, &mut cur) }
             Some(Tok::Keyword(TokenKind::Return)) => { cur.next(); exec_return(vm) }

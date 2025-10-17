@@ -2,7 +2,7 @@ use crate::tokens::{lookup_keyword_upper, Tok, TokenKind};
 
 /// Crunch-like lexer:
 /// - collapse reserved words into a single Keyword token; otherwise follow BASIC-ish rules.
-/// - simplified: does not special-case REM here; handle in parser/executor if needed.
+/// - special-case REM: once seen, treat the rest of the line as a comment and stop.
 pub fn crunch(src: &str) -> Vec<Tok> {
     let mut out = Vec::new();
     let mut i = 0usize;
@@ -47,6 +47,11 @@ pub fn crunch(src: &str) -> Vec<Tok> {
                 let word = &src[start..i];
                 let upper = word.to_ascii_uppercase();
                 if let Some(kw) = lookup_keyword_upper(&upper) {
+                    if kw == TokenKind::Rem {
+                        out.push(Tok::Keyword(kw));
+                        // Stop lexing remainder (comment to end of line)
+                        break;
+                    }
                     out.push(Tok::Keyword(kw));
                 } else {
                     out.push(Tok::Ident(upper));
