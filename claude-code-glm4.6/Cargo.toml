@@ -1,0 +1,28 @@
+[package]
+name = "basic-m6502-rust"
+version = "0.1.0"
+edition = "2021"
+authors = ["BASIC-M6502 Rust Implementation Team"]
+description = "A Rust implementation of Microsoft BASIC for 6502 microprocessor"
+license = "MIT"
+repository = "https://github.com/your-username/basic-m6502-rust"
+
+[dependencies]
+thiserror = "1.0"
+num-traits = "0.2"
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = "3.0"
+
+[[bin]]
+name = "basic-repl"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1
