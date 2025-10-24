@@ -1,0 +1,2 @@
+10 A=1: B=2: PRINT A+B
+20 X="HELLO": Y=" WORLD": PRINT X+Y

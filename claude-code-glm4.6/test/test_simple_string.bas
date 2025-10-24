@@ -1,0 +1,3 @@
+10 PRINT "Testing LEFT$"
+20 LET S$ = "HELLO"
+30 PRINT LEFT$(S$, 3)
