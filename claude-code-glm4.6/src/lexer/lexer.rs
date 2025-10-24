@@ -53,7 +53,8 @@ impl Lexer {
 
                     // Special handling for REM - everything after REM is ignored
                     if identifier == "REM" {
-                        // Skip rest of line - REM is a comment
+                        // Add REM token and skip rest of line - REM is a comment
+                        tokens.push(Token::Rem);
                         break;
                     } else if let Some(keyword) = keyword_to_token(&identifier) {
                         tokens.push(keyword);

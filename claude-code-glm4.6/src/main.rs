@@ -86,62 +86,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         io::stdout().flush()?;
 
         let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        let input = input.trim();
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => {
+                let input = input.trim();
 
-        if input.is_empty() {
-            continue;
-        }
-
-        match input.to_uppercase().as_str() {
-            "QUIT" | "EXIT" => break,
-            "HELP" => {
-                print_help();
-                continue;
-            }
-            "NEW" => {
-                mem.clear();
-                println!("PROGRAM CLEARED");
-                continue;
-            }
-            "LIST" => {
-                mem.list_program();
-                continue;
-            }
-            "RUN" => {
-                if let Err(e) = run_program(&mut mem, &mut executor, &mut evaluator) {
-                    eprintln!("ERROR: {}", e);
+                if input.is_empty() {
+                    continue;
                 }
-                continue;
-            }
-            _ => {}
-        }
 
-        // 词法分析
-        let tokens = match lexer.tokenize(input) {
-            Ok(tokens) => tokens,
+                match input.to_uppercase().as_str() {
+                    "QUIT" | "EXIT" => break,
+                    "HELP" => {
+                        print_help();
+                        continue;
+                    }
+                    "NEW" => {
+                        mem.clear();
+                        println!("PROGRAM CLEARED");
+                        continue;
+                    }
+                    "LIST" => {
+                        mem.list_program();
+                        continue;
+                    }
+                    "RUN" => {
+                        if let Err(e) = run_program(&mut mem, &mut executor, &mut evaluator) {
+                            eprintln!("ERROR: {}", e);
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
+
+                // 词法分析
+                let tokens = match lexer.tokenize(input) {
+                    Ok(tokens) => tokens,
+                    Err(e) => {
+                        eprintln!("SYNTAX ERROR: {}", e);
+                        continue;
+                    }
+                };
+
+                // 检查是否有行号
+                if let Some(line_number) = extract_line_number(&tokens) {
+                    // Check if this is a DATA statement - if so, process it immediately
+                    if tokens.len() > 1 && matches!(tokens[1], Token::Data) {
+                        if let Err(e) = executor.execute_statement(&tokens[1..], &mut mem, &mut evaluator) {
+                            eprintln!("ERROR: {}", e);
+                        }
+                    }
+                    // 存储程序行
+                    if let Err(e) = mem.store_line(line_number, tokens) {
+                        eprintln!("ERROR: {}", e);
+                    }
+                } else {
+                    // 立即执行
+                    if let Err(e) = executor.execute_statement(&tokens, &mut mem, &mut evaluator) {
+                        eprintln!("ERROR: {}", e);
+                    }
+                }
+            }
             Err(e) => {
-                eprintln!("SYNTAX ERROR: {}", e);
-                continue;
-            }
-        };
-
-        // 检查是否有行号
-        if let Some(line_number) = extract_line_number(&tokens) {
-            // Check if this is a DATA statement - if so, process it immediately
-            if tokens.len() > 1 && matches!(tokens[1], Token::Data) {
-                if let Err(e) = executor.execute_statement(&tokens[1..], &mut mem, &mut evaluator) {
-                    eprintln!("ERROR: {}", e);
-                }
-            }
-            // 存储程序行
-            if let Err(e) = mem.store_line(line_number, tokens) {
-                eprintln!("ERROR: {}", e);
-            }
-        } else {
-            // 立即执行
-            if let Err(e) = executor.execute_statement(&tokens, &mut mem, &mut evaluator) {
-                eprintln!("ERROR: {}", e);
+                // stdin读取失败，可能是因为在后台运行
+                eprintln!("Input error: {}", e);
+                break;
             }
         }
     }

@@ -25,7 +25,7 @@ impl StatementExecutor {
         Self {}
     }
 
-    /// Execute a single statement
+    /// Execute a single statement or multiple statements separated by colons
     pub fn execute_statement(
         &mut self,
         tokens: &[Token],
@@ -34,6 +34,42 @@ impl StatementExecutor {
     ) -> BasicResult<bool> {
         if tokens.is_empty() {
             return Ok(true); // Empty line, continue execution
+        }
+
+        // Split by colons to handle multiple statements on one line
+        let mut statement_start = 0;
+        for (i, token) in tokens.iter().enumerate() {
+            if matches!(token, Token::Colon) {
+                // Execute the statement before the colon
+                if statement_start < i {
+                    let statement_tokens = &tokens[statement_start..i];
+                    if !self.execute_single_statement(statement_tokens, mem, evaluator)? {
+                        return Ok(false); // End program execution
+                    }
+                }
+                statement_start = i + 1; // Start after the colon
+                continue; // Skip to next token
+            }
+        }
+
+        // Execute the last statement (or the only statement if no colons)
+        if statement_start < tokens.len() {
+            let statement_tokens = &tokens[statement_start..];
+            return self.execute_single_statement(statement_tokens, mem, evaluator);
+        }
+
+        Ok(true)
+    }
+
+    /// Execute a single statement (no colons)
+    fn execute_single_statement(
+        &mut self,
+        tokens: &[Token],
+        mem: &mut MemoryManager,
+        evaluator: &mut ExpressionEvaluator,
+    ) -> BasicResult<bool> {
+        if tokens.is_empty() {
+            return Ok(true); // Empty statement, continue execution
         }
 
         // Check the first token to determine statement type
