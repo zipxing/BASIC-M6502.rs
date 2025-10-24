@@ -1893,4 +1893,147 @@ mod tests {
         assert_eq!(array_d.dimensions, vec![2, 3, 4]);
         assert_eq!(array_d.data.len(), 24); // 2 * 3 * 4 = 24
     }
+
+    #[test]
+    fn test_colon_separated_statements() {
+        let mut executor = StatementExecutor::new();
+        let mut mem = MemoryManager::new();
+        let mut evaluator = ExpressionEvaluator::new();
+
+        // Test two PRINT statements separated by colon
+        let tokens1 = vec![
+            Token::Print,
+            Token::String("First".to_string()),
+            Token::Colon,
+            Token::Print,
+            Token::String("Second".to_string())
+        ];
+
+        let result1 = executor.execute_statement(&tokens1, &mut mem, &mut evaluator);
+        assert!(result1.is_ok());
+        assert!(result1.unwrap()); // Should continue execution
+    }
+
+    #[test]
+    fn test_colon_separated_let_statements() {
+        let mut executor = StatementExecutor::new();
+        let mut mem = MemoryManager::new();
+        let mut evaluator = ExpressionEvaluator::new();
+
+        // Test multiple LET statements separated by colon
+        let tokens = vec![
+            Token::Let,
+            Token::Identifier("A".to_string()),
+            Token::Equal,
+            Token::Number(10.0),
+            Token::Colon,
+            Token::Let,
+            Token::Identifier("B".to_string()),
+            Token::Equal,
+            Token::Number(20.0),
+            Token::Colon,
+            Token::Let,
+            Token::Identifier("C".to_string()),
+            Token::Equal,
+            Token::Number(30.0)
+        ];
+
+        let result = executor.execute_statement(&tokens, &mut mem, &mut evaluator);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // Should continue execution
+
+        // Verify all variables were set correctly
+        assert_eq!(mem.get_variable("A").unwrap(), &Value::Float(10.0));
+        assert_eq!(mem.get_variable("B").unwrap(), &Value::Float(20.0));
+        assert_eq!(mem.get_variable("C").unwrap(), &Value::Float(30.0));
+    }
+
+    #[test]
+    fn test_colon_separated_mixed_statements() {
+        let mut executor = StatementExecutor::new();
+        let mut mem = MemoryManager::new();
+        let mut evaluator = ExpressionEvaluator::new();
+
+        // Test mixed statement types separated by colon
+        let tokens = vec![
+            Token::Let,
+            Token::Identifier("X".to_string()),
+            Token::Equal,
+            Token::Number(42.0),
+            Token::Colon,
+            Token::Print,
+            Token::Identifier("X".to_string()),
+            Token::Colon,
+            Token::Let,
+            Token::Identifier("Y$".to_string()),
+            Token::Equal,
+            Token::String("Hello".to_string())
+        ];
+
+        let result = executor.execute_statement(&tokens, &mut mem, &mut evaluator);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // Should continue execution
+
+        // Verify variable assignments
+        assert_eq!(mem.get_variable("X").unwrap(), &Value::Float(42.0));
+        assert_eq!(mem.get_variable("Y$").unwrap(), &Value::String("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_colon_separated_with_empty_statement() {
+        let mut executor = StatementExecutor::new();
+        let mut mem = MemoryManager::new();
+        let mut evaluator = ExpressionEvaluator::new();
+
+        // Test colon with empty statement (should handle gracefully)
+        let tokens = vec![
+            Token::Let,
+            Token::Identifier("A".to_string()),
+            Token::Equal,
+            Token::Number(5.0),
+            Token::Colon,
+            Token::Colon,  // Double colon means empty statement in between
+            Token::Let,
+            Token::Identifier("B".to_string()),
+            Token::Equal,
+            Token::Number(10.0)
+        ];
+
+        let result = executor.execute_statement(&tokens, &mut mem, &mut evaluator);
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // Should continue execution
+
+        // Verify variable assignments
+        assert_eq!(mem.get_variable("A").unwrap(), &Value::Float(5.0));
+        assert_eq!(mem.get_variable("B").unwrap(), &Value::Float(10.0));
+    }
+
+    #[test]
+    fn test_colon_separated_with_error_early_termination() {
+        let mut executor = StatementExecutor::new();
+        let mut mem = MemoryManager::new();
+        let mut evaluator = ExpressionEvaluator::new();
+
+        // Test that execution stops when first statement fails
+        let tokens = vec![
+            Token::Let,
+            Token::Identifier("A".to_string()),
+            Token::Equal,
+            Token::Number(5.0),
+            Token::Colon,
+            Token::Let,  // Incomplete LET statement - syntax error
+            Token::Colon,
+            Token::Let,
+            Token::Identifier("B".to_string()),
+            Token::Equal,
+            Token::Number(10.0)
+        ];
+
+        let result = executor.execute_statement(&tokens, &mut mem, &mut evaluator);
+        assert!(result.is_err()); // Should fail due to syntax error in second statement
+
+        // First variable should still be set, but not the third one
+        assert_eq!(mem.get_variable("A").unwrap(), &Value::Float(5.0));
+        assert!(mem.get_variable("B").is_err()); // B should not be set
+    }
 }
