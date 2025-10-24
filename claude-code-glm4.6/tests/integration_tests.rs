@@ -68,7 +68,7 @@ fn test_simple_program_execution() {
 
     let output = run_basic_program(program).expect("Program should run successfully");
     assert!(output.contains("Hello World"));
-    assert!(output.contains("X =42.0"));
+    assert!(output.contains("X =42"));
 }
 
 #[test]
@@ -82,11 +82,11 @@ fn test_for_loop_program() {
     let output = run_basic_program(program).expect("Program should run successfully");
 
     // Check that all iterations are printed
-    assert!(output.contains("Count:1.0"));
-    assert!(output.contains("Count:2.0"));
-    assert!(output.contains("Count:3.0"));
-    assert!(output.contains("Count:4.0"));
-    assert!(output.contains("Count:5.0"));
+    assert!(output.contains("Count:1"));
+    assert!(output.contains("Count:2"));
+    assert!(output.contains("Count:3"));
+    assert!(output.contains("Count:4"));
+    assert!(output.contains("Count:5"));
 }
 
 #[test]
@@ -104,10 +104,10 @@ fn test_nested_for_loops() {
     // Should print: 11, 12, 21, 22 (no spaces in BASIC semicolon output)
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(lines.len(), 4);
-    assert!(lines[0].contains("1.01.0"));
-    assert!(lines[1].contains("1.02.0"));
-    assert!(lines[2].contains("2.01.0"));
-    assert!(lines[3].contains("2.02.0"));
+    assert_eq!(lines[0], "11");
+    assert_eq!(lines[1], "12");
+    assert_eq!(lines[2], "21");
+    assert_eq!(lines[3], "22");
 }
 
 #[test]
@@ -188,11 +188,11 @@ fn test_math_expressions() {
     let output = run_basic_program(program).expect("Program should run successfully");
 
     let lines: Vec<&str> = output.lines().collect();
-    assert_eq!(lines[0], "5.0");
-    assert_eq!(lines[1], "6.0");
-    assert_eq!(lines[2], "12.0");
-    assert_eq!(lines[3], "5.0");
-    assert_eq!(lines[4], "8.0");
+    assert_eq!(lines[0], "5");
+    assert_eq!(lines[1], "6");
+    assert_eq!(lines[2], "12");
+    assert_eq!(lines[3], "5");
+    assert_eq!(lines[4], "8");
 }
 
 #[test]
@@ -207,10 +207,10 @@ fn test_operator_precedence() {
     let output = run_basic_program(program).expect("Program should run successfully");
 
     let lines: Vec<&str> = output.lines().collect();
-    assert_eq!(lines[0], "14.0");  // 2 + (3 * 4) = 14
-    assert_eq!(lines[1], "20.0");  // (2 + 3) * 4 = 20
-    assert_eq!(lines[2], "8.0");   // 10 - (4 / 2) = 8
-    assert_eq!(lines[3], "3.0");   // (10 - 4) / 2 = 3
+    assert_eq!(lines[0], "14");  // 2 + (3 * 4) = 14
+    assert_eq!(lines[1], "20");  // (2 + 3) * 4 = 20
+    assert_eq!(lines[2], "8");   // 10 - (4 / 2) = 8
+    assert_eq!(lines[3], "3");   // (10 - 4) / 2 = 3
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn test_variable_types() {
     let output = run_basic_program(program).expect("Program should run successfully");
 
     let lines: Vec<&str> = output.lines().collect();
-    assert_eq!(lines[0], "123.0");
+    assert_eq!(lines[0], "123");
     assert_eq!(lines[1], "3.14159");
     assert_eq!(lines[2], "String");
 }
@@ -267,7 +267,7 @@ fn test_fibonacci_program() {
     let output = run_basic_program(program).expect("Program should run successfully");
 
     let lines: Vec<&str> = output.lines().collect();
-    let expected = vec!["0.0", "1.0", "1.0", "2.0", "3.0", "5.0", "8.0", "13.0", "21.0", "34.0"];
+    let expected = vec!["0", "1", "1", "2", "3", "5", "8", "13", "21", "34"];
     assert_eq!(lines, expected);
 }
 
@@ -288,8 +288,8 @@ fn test_data_read_statements() {
     let output = run_basic_program(program).expect("Program should run successfully");
 
     let lines: Vec<&str> = output.lines().collect();
-    assert_eq!(lines[0], "10.0");
-    assert_eq!(lines[1], "20.0");
+    assert_eq!(lines[0], "10");
+    assert_eq!(lines[1], "20");
     assert_eq!(lines[2], "Hello");
     assert_eq!(lines[3], "30.5");
 }
@@ -309,8 +309,8 @@ fn test_restore_statement() {
     let output = run_basic_program(program).expect("Program should run successfully");
 
     let lines: Vec<&str> = output.lines().collect();
-    assert_eq!(lines[0], "100.0200.0300.0");
-    assert_eq!(lines[1], "100.0200.0");
+    assert_eq!(lines[0], "100200300");
+    assert_eq!(lines[1], "100200");
 }
 
 #[test]
@@ -328,7 +328,7 @@ fn test_multiple_data_statements() {
     let output = run_basic_program(program).expect("Program should run successfully");
 
     let lines: Vec<&str> = output.lines().collect();
-    assert_eq!(lines[0], "1.02.03.0");
+    assert_eq!(lines[0], "123");
     assert_eq!(lines[1], "ABC");
 }
 
@@ -344,5 +344,5 @@ fn test_out_of_data_error() {
 
     // Should print the first two values, third variable should be 0 (default)
     // In our implementation, the OUT OF DATA error is handled gracefully and execution continues
-    assert!(output.contains("1.0") && output.contains("2.0"));
+    assert!(output.contains("1") && output.contains("2"));
 }

@@ -202,8 +202,9 @@ impl StatementExecutor {
                 match value {
                     crate::runtime::memory::Value::String(s) => print!("{}", s),
                     crate::runtime::memory::Value::Float(f) => {
-                        if f.fract() == 0.0 {
-                            print!("{}.0", f);
+                        if f.fract() == 0.0 && f.abs() <= 32767.0 {
+                            // Display as integer for values within BASIC integer range
+                            print!("{}", f as i64);
                         } else {
                             print!("{}", f);
                         }
