@@ -3,6 +3,8 @@
 //! This module defines all tokens used in the BASIC language,
 //! corresponding to the original token system in Microsoft BASIC.
 
+#[allow(dead_code)]
+
 use std::fmt;
 
 /// All possible tokens in BASIC, corresponding to the original token values

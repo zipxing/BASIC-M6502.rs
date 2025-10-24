@@ -6,6 +6,3 @@
 
 pub mod memory;
 pub mod string_pool;
-
-pub use memory::{MemoryManager, Value, Variable, Array, ProgramLine, ForLoop};
-pub use string_pool::{StringPool, StringDescriptor};

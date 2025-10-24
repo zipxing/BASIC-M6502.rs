@@ -3,6 +3,8 @@
 //! This module defines the main data structures for managing
 //! BASIC program state, corresponding to the original memory layout.
 
+#[allow(dead_code)]
+
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use crate::lexer::Token;
@@ -269,6 +271,7 @@ pub struct MemoryManager {
     pub gosub_stack: Vec<GosubReturn>,   // GOSUB return stack
 
     // String management (simplified for now)
+    #[allow(dead_code)]
     string_memory: Vec<String>,
 }
 
@@ -351,6 +354,7 @@ impl MemoryManager {
     }
 
     /// Get array
+    #[allow(dead_code)]
     pub fn get_array(&self, name: &str) -> BasicResult<&Array> {
         self.arrays
             .get(name)
@@ -358,6 +362,7 @@ impl MemoryManager {
     }
 
     /// Create or get array
+    #[allow(dead_code)]
     pub fn get_or_create_array(&mut self, name: String, dimensions: Vec<usize>) -> BasicResult<&mut Array> {
         if !self.arrays.contains_key(&name) {
             let array = Array::new(name.clone(), dimensions);
@@ -368,16 +373,24 @@ impl MemoryManager {
     }
 
     /// Get all variables (for testing and debugging)
+    #[allow(dead_code)]
     pub fn variables(&self) -> &HashMap<String, Variable> {
         &self.variables
     }
 
     /// Get all arrays
+    #[allow(dead_code)]
     pub fn arrays(&self) -> &HashMap<String, Array> {
         &self.arrays
     }
 
+    /// Get mutable reference to all arrays
+    pub fn arrays_mut(&mut self) -> &mut HashMap<String, Array> {
+        &mut self.arrays
+    }
+
     /// Find the next line number after the given one
+    #[allow(dead_code)]
     pub fn find_next_line(&self, current_line: u16) -> Option<u16> {
         self.program_lines
             .range(current_line + 1..)

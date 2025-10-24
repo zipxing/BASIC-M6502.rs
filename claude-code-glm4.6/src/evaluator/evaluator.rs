@@ -11,8 +11,10 @@ use crate::lexer::Token;
 /// Expression evaluator using operator precedence parsing
 pub struct ExpressionEvaluator {
     /// Stack for storing intermediate results during evaluation
+    #[allow(dead_code)]
     value_stack: Vec<Value>,
     /// Stack for storing operators and their precedence
+    #[allow(dead_code)]
     operator_stack: Vec<OperatorFrame>,
     /// Current position in token stream
     position: usize,
@@ -20,6 +22,7 @@ pub struct ExpressionEvaluator {
 
 /// Frame for storing operator information on the stack
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 struct OperatorFrame {
     /// The operator token
     operator: Token,
@@ -269,6 +272,95 @@ impl ExpressionEvaluator {
                 Ok(Value::Float(random))
             }
 
+            // String functions
+            Token::Left => self.evaluate_binary_function(tokens, mem, |str_val, len_val| {
+                let s = match str_val {
+                    Value::String(s) => s,
+                    _ => return Err(BasicError::TypeMismatch),
+                };
+                let len = len_val.to_float()? as usize;
+                if len > s.len() {
+                    Ok(Value::String(s))
+                } else {
+                    Ok(Value::String(s[..len].to_string()))
+                }
+            }),
+
+            Token::Right => self.evaluate_binary_function(tokens, mem, |str_val, len_val| {
+                let s = match str_val {
+                    Value::String(s) => s,
+                    _ => return Err(BasicError::TypeMismatch),
+                };
+                let len = len_val.to_float()? as usize;
+                if len > s.len() {
+                    Ok(Value::String(s))
+                } else {
+                    Ok(Value::String(s[s.len() - len..].to_string()))
+                }
+            }),
+
+            Token::Mid => self.evaluate_ternary_function(tokens, mem, |str_val, start_val, len_val| {
+                let s = match str_val {
+                    Value::String(s) => s,
+                    _ => return Err(BasicError::TypeMismatch),
+                };
+                let start = start_val.to_float()? as usize;
+                let len = len_val.to_float()? as usize;
+
+                if start == 0 || start > s.len() {
+                    return Ok(Value::String(String::new()));
+                }
+
+                let start_idx = start - 1; // BASIC is 1-indexed
+                let end_idx = std::cmp::min(start_idx + len, s.len());
+
+                if start_idx >= s.len() {
+                    Ok(Value::String(String::new()))
+                } else {
+                    Ok(Value::String(s[start_idx..end_idx].to_string()))
+                }
+            }),
+
+            Token::Str => self.evaluate_unary_function(tokens, mem, |v| {
+                let f = v.to_float()?;
+                // Convert to string, removing decimal part if it's .0
+                if f.fract() == 0.0 {
+                    Ok(Value::String(format!("{}", f as i64)))
+                } else {
+                    Ok(Value::String(format!("{}", f)))
+                }
+            }),
+
+            Token::Val => self.evaluate_unary_function(tokens, mem, |v| {
+                let s = match v {
+                    Value::String(s) => s,
+                    _ => return Err(BasicError::TypeMismatch),
+                };
+                s.parse::<f64>()
+                    .map(Value::Float)
+                    .map_err(|_| BasicError::TypeMismatch)
+            }),
+
+            Token::Asc => self.evaluate_unary_function(tokens, mem, |v| {
+                let s = match v {
+                    Value::String(s) => s,
+                    _ => return Err(BasicError::TypeMismatch),
+                };
+                if s.is_empty() {
+                    return Err(BasicError::IllegalQuantity);
+                }
+                Ok(Value::Float(s.chars().next().unwrap() as u8 as f64))
+            }),
+
+            Token::Chr => self.evaluate_unary_function(tokens, mem, |v| {
+                let f = v.to_float()?;
+                if f < 0.0 || f > 255.0 {
+                    return Err(BasicError::IllegalQuantity);
+                }
+                let ch = f as u8 as char;
+                Ok(Value::String(ch.to_string()))
+            }),
+
             // Handle unary minus
             Token::Minus => {
                 self.position += 1;
@@ -324,7 +416,104 @@ impl ExpressionEvaluator {
         func(arg_value)
     }
 
+    /// Evaluate a binary function with two arguments
+    fn evaluate_binary_function<F>(
+        &mut self,
+        tokens: &[Token],
+        mem: &mut MemoryManager,
+        func: F,
+    ) -> BasicResult<Value>
+    where
+        F: FnOnce(Value, Value) -> BasicResult<Value>,
+    {
+        self.position += 1; // Skip function name
+
+        // Check for opening parenthesis
+        if self.position >= tokens.len() || tokens[self.position] != Token::LeftParen {
+            return Err(BasicError::ExpectedRightParen);
+        }
+
+        self.position += 1; // Skip '('
+
+        // Evaluate first argument
+        let arg1 = self.parse_logical_or(tokens, mem)?;
+
+        // Check for comma
+        if self.position >= tokens.len() || tokens[self.position] != Token::Comma {
+            return Err(BasicError::Syntax);
+        }
+
+        self.position += 1; // Skip ','
+
+        // Evaluate second argument
+        let arg2 = self.parse_logical_or(tokens, mem)?;
+
+        // Check for closing parenthesis
+        if self.position >= tokens.len() || tokens[self.position] != Token::RightParen {
+            return Err(BasicError::ExpectedRightParen);
+        }
+
+        self.position += 1; // Skip ')'
+
+        // Apply the function
+        func(arg1, arg2)
+    }
+
+    /// Evaluate a ternary function with three arguments
+    fn evaluate_ternary_function<F>(
+        &mut self,
+        tokens: &[Token],
+        mem: &mut MemoryManager,
+        func: F,
+    ) -> BasicResult<Value>
+    where
+        F: FnOnce(Value, Value, Value) -> BasicResult<Value>,
+    {
+        self.position += 1; // Skip function name
+
+        // Check for opening parenthesis
+        if self.position >= tokens.len() || tokens[self.position] != Token::LeftParen {
+            return Err(BasicError::ExpectedRightParen);
+        }
+
+        self.position += 1; // Skip '('
+
+        // Evaluate first argument
+        let arg1 = self.parse_logical_or(tokens, mem)?;
+
+        // Check for first comma
+        if self.position >= tokens.len() || tokens[self.position] != Token::Comma {
+            return Err(BasicError::Syntax);
+        }
+
+        self.position += 1; // Skip ','
+
+        // Evaluate second argument
+        let arg2 = self.parse_logical_or(tokens, mem)?;
+
+        // Check for second comma
+        if self.position >= tokens.len() || tokens[self.position] != Token::Comma {
+            return Err(BasicError::Syntax);
+        }
+
+        self.position += 1; // Skip ','
+
+        // Evaluate third argument
+        let arg3 = self.parse_logical_or(tokens, mem)?;
+
+        // Check for closing parenthesis
+        if self.position >= tokens.len() || tokens[self.position] != Token::RightParen {
+            return Err(BasicError::ExpectedRightParen);
+        }
+
+        self.position += 1; // Skip ')'
+
+        // Apply the function
+        func(arg1, arg2, arg3)
+    }
+
     /// Execute a pending operation from the operator stack
+    #[allow(dead_code)]
     fn execute_pending_operation(&mut self) -> BasicResult<()> {
         if self.operator_stack.is_empty() || self.value_stack.len() < 2 {
             return Err(BasicError::Syntax);
@@ -343,6 +532,7 @@ impl ExpressionEvaluator {
     }
 
     /// Execute a binary operation between two values
+    #[allow(dead_code)]
     fn execute_binary_operation(&self, left: &Value, op: &Token, right: &Value) -> BasicResult<Value> {
         match op {
             // Arithmetic operations
@@ -542,6 +732,7 @@ impl ExpressionEvaluator {
     }
 
     /// Peek at the next token without advancing
+    #[allow(dead_code)]
     fn peek_token<'a>(&self, tokens: &'a [Token]) -> Option<&'a Token> {
         tokens.get(self.position + 1)
     }
@@ -679,5 +870,48 @@ mod tests {
             Value::Float(f) => assert!(f >= 0.0 && f < 1.0),
             _ => panic!("RND should return a float"),
         }
+    }
+
+    #[test]
+    fn test_string_functions() {
+        // Test LEFT$
+        assert_eq!(evaluate_expression("LEFT$(\"HELLO\", 3)").unwrap(),
+                   Value::String("HEL".to_string()));
+        assert_eq!(evaluate_expression("LEFT$(\"HI\", 10)").unwrap(),
+                   Value::String("HI".to_string()));
+
+        // Test RIGHT$
+        assert_eq!(evaluate_expression("RIGHT$(\"HELLO\", 3)").unwrap(),
+                   Value::String("LLO".to_string()));
+        assert_eq!(evaluate_expression("RIGHT$(\"HI\", 10)").unwrap(),
+                   Value::String("HI".to_string()));
+
+        // Test MID$
+        assert_eq!(evaluate_expression("MID$(\"HELLO\", 2, 3)").unwrap(),
+                   Value::String("ELL".to_string()));
+        assert_eq!(evaluate_expression("MID$(\"HELLO\", 1, 2)").unwrap(),
+                   Value::String("HE".to_string()));
+        assert_eq!(evaluate_expression("MID$(\"HELLO\", 10, 3)").unwrap(),
+                   Value::String("".to_string()));
+
+        // Test STR$
+        assert_eq!(evaluate_expression("STR$(123)").unwrap(),
+                   Value::String("123".to_string()));
+        assert_eq!(evaluate_expression("STR$(123.5)").unwrap(),
+                   Value::String("123.5".to_string()));
+
+        // Test VAL
+        assert_eq!(evaluate_expression("VAL(\"456\")").unwrap(),
+                   Value::Float(456.0));
+        assert_eq!(evaluate_expression("VAL(\"456.5\")").unwrap(),
+                   Value::Float(456.5));
+
+        // Test ASC
+        assert_eq!(evaluate_expression("ASC(\"A\")").unwrap(),
+                   Value::Float(65.0));
+
+        // Test CHR$
+        assert_eq!(evaluate_expression("CHR$(65)").unwrap(),
+                   Value::String("A".to_string()));
     }
 }

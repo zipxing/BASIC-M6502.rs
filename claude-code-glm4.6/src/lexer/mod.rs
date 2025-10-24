@@ -1,5 +1,5 @@
 pub use self::lexer::Lexer;
-pub use self::tokens::{Token, keyword_to_token};
+pub use self::tokens::Token;
 
 mod lexer;
 mod tokens;

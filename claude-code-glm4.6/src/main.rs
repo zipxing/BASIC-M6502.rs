@@ -29,7 +29,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check if a file argument was provided
     let args: Vec<String> = env::args().collect();
-    if args.len() > 1 {
+    let file_mode = args.len() > 1;
+    if file_mode {
         // Load and execute the file
         let filename = &args[1];
         let program = fs::read_to_string(filename)?;
@@ -49,8 +50,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(line_num) = extract_line_number(&tokens) {
                         // Check if this is a DATA statement - if so, process it immediately
                         if !tokens.is_empty() && matches!(tokens[1], Token::Data) {
-                            let mut executor = StatementExecutor::new();
-                            let mut evaluator = ExpressionEvaluator::new();
                             // Execute DATA statement to populate data values
                             if let Err(e) = executor.execute_statement(&tokens[1..], &mut mem, &mut evaluator) {
                                 println!("Error in DATA statement '{}': {:?}", line, e);
@@ -70,6 +69,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Program loaded. Type 'RUN' to execute.");
         println!();
+
+        // In file mode, automatically run the program and then exit
+        println!("Running program...");
+        if let Err(e) = run_program(&mut mem, &mut executor, &mut evaluator) {
+            eprintln!("ERROR: {}", e);
+        }
+
+        // Exit after file execution
+        println!("Program execution completed. Exiting.");
+        return Ok(());
     }
 
     loop {

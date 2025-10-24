@@ -3,6 +3,8 @@
 //! This module handles string storage, similar to the original BASIC's
 //! string space management and garbage collection.
 
+#[allow(dead_code)]
+
 use std::collections::HashMap;
 
 /// String descriptor (3 bytes in original, expanded for Rust)

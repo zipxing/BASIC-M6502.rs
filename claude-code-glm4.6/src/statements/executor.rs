@@ -50,6 +50,7 @@ impl StatementExecutor {
             Token::Data => self.execute_data(&tokens[1..], mem),
             Token::Read => self.execute_read(&tokens[1..], mem, evaluator),
             Token::Restore => self.execute_restore(mem),
+            Token::Dim => self.execute_dim(&tokens[1..], mem),
             Token::Load => self.execute_load(&tokens[1..], mem),
             Token::Save => self.execute_save(&tokens[1..], mem),
             Token::End => Ok(false), // End program execution
@@ -161,9 +162,6 @@ impl StatementExecutor {
                 // Evaluate the expression
                 let value = evaluator.evaluate(expression, mem)?;
 
-                // Check if current value was numeric before we potentially move it
-                let is_numeric = matches!(value, crate::runtime::memory::Value::Float(_) | crate::runtime::memory::Value::Integer(_));
-
                 // Print the value
                 match value {
                     crate::runtime::memory::Value::String(s) => print!("{}", s),
@@ -217,7 +215,7 @@ impl StatementExecutor {
         &mut self,
         tokens: &[Token],
         mem: &mut MemoryManager,
-        evaluator: &mut ExpressionEvaluator,
+        _evaluator: &mut ExpressionEvaluator,
     ) -> BasicResult<bool> {
         use std::io::{self, Write};
 
@@ -570,7 +568,7 @@ impl StatementExecutor {
         };
 
         // Get current value of the loop variable
-        let current_value = mem.get_variable(&for_loop.variable_name)?;
+        let _current_value = mem.get_variable(&for_loop.variable_name)?;
 
         // Increment the loop variable by the step value
         // Create a simple expression: variable + step
@@ -650,7 +648,6 @@ impl StatementExecutor {
     /// Execute SAVE statement: SAVE "filename"
     fn execute_save(&mut self, tokens: &[Token], mem: &mut MemoryManager) -> BasicResult<bool> {
         use std::fs;
-        use std::io::Write;
 
         if tokens.len() != 1 {
             return Err(BasicError::Syntax);
@@ -786,6 +783,81 @@ impl StatementExecutor {
     /// Execute RESTORE statement: RESTORE
     fn execute_restore(&mut self, mem: &mut MemoryManager) -> BasicResult<bool> {
         mem.restore_data();
+        Ok(true)
+    }
+
+    /// Execute DIM statement: DIM array1(size1), array2(size2, size3)...
+    fn execute_dim(&mut self, tokens: &[Token], mem: &mut MemoryManager) -> BasicResult<bool> {
+        if tokens.is_empty() {
+            return Err(BasicError::Syntax);
+        }
+
+        let mut i = 0;
+        while i < tokens.len() {
+            // Parse array name
+            let array_name = match &tokens[i] {
+                Token::Identifier(name) => name,
+                _ => return Err(BasicError::Syntax),
+            };
+
+            i += 1;
+
+            // Expect left parenthesis
+            if i >= tokens.len() || !matches!(tokens[i], Token::LeftParen) {
+                return Err(BasicError::Syntax);
+            }
+            i += 1;
+
+            // Parse dimensions
+            let mut dimensions = Vec::new();
+            while i < tokens.len() && !matches!(tokens[i], Token::RightParen) {
+                match &tokens[i] {
+                    Token::Number(n) => {
+                        if *n <= 0.0 || n.fract() != 0.0 {
+                            return Err(BasicError::IllegalQuantity);
+                        }
+                        dimensions.push(*n as usize);
+                    }
+                    Token::Comma => {
+                        // Just skip commas between dimensions
+                    }
+                    _ => return Err(BasicError::Syntax),
+                }
+                i += 1;
+            }
+
+            // Expect right parenthesis
+            if i >= tokens.len() || !matches!(tokens[i], Token::RightParen) {
+                return Err(BasicError::Syntax);
+            }
+            i += 1;
+
+            // Check if we have more arrays (comma separator)
+            if i < tokens.len() {
+                if !matches!(tokens[i], Token::Comma) {
+                    return Err(BasicError::Syntax);
+                }
+                i += 1;
+            }
+
+            // Create the array with initial zero values
+            let total_elements = dimensions.iter().product();
+            let mut data = Vec::with_capacity(total_elements);
+            for _ in 0..total_elements {
+                data.push(Value::Float(0.0));
+            }
+
+            // Store the array in memory
+            use crate::runtime::memory::Array;
+            let array = Array {
+                name: array_name.clone(),
+                dimensions,
+                data,
+            };
+
+            mem.arrays_mut().insert(array_name.clone(), array);
+        }
+
         Ok(true)
     }
 }
@@ -1709,5 +1781,80 @@ mod tests {
         // RESULT should exist (42 is true)
         let value = mem.get_variable("RESULT").unwrap();
         assert_eq!(value, &Value::Float(1.0));
+    }
+
+    #[test]
+    fn test_dim_statement() {
+        let mut executor = StatementExecutor::new();
+        let mut mem = MemoryManager::new();
+        let mut evaluator = ExpressionEvaluator::new();
+
+        // Test single dimension array: DIM A(10)
+        let tokens1 = vec![
+            Token::Dim,
+            Token::Identifier("A".to_string()),
+            Token::LeftParen,
+            Token::Number(10.0),
+            Token::RightParen,
+        ];
+
+        let result1 = executor.execute_statement(&tokens1, &mut mem, &mut evaluator).unwrap();
+        assert!(result1);
+
+        // Check if array was created
+        let array = mem.arrays().get("A").unwrap();
+        assert_eq!(array.name, "A");
+        assert_eq!(array.dimensions, vec![10]);
+        assert_eq!(array.data.len(), 10);
+        assert_eq!(array.data[0], Value::Float(0.0)); // Should be initialized to 0
+
+        // Test multi-dimension array: DIM B(3,4)
+        let tokens2 = vec![
+            Token::Dim,
+            Token::Identifier("B".to_string()),
+            Token::LeftParen,
+            Token::Number(3.0),
+            Token::Comma,
+            Token::Number(4.0),
+            Token::RightParen,
+        ];
+
+        let result2 = executor.execute_statement(&tokens2, &mut mem, &mut evaluator).unwrap();
+        assert!(result2);
+
+        // Check if multi-dimensional array was created
+        let array_b = mem.arrays().get("B").unwrap();
+        assert_eq!(array_b.name, "B");
+        assert_eq!(array_b.dimensions, vec![3, 4]);
+        assert_eq!(array_b.data.len(), 12); // 3 * 4 = 12
+
+        // Test multiple arrays: DIM C(5), D(2,3,4)
+        let tokens3 = vec![
+            Token::Dim,
+            Token::Identifier("C".to_string()),
+            Token::LeftParen,
+            Token::Number(5.0),
+            Token::RightParen,
+            Token::Comma,
+            Token::Identifier("D".to_string()),
+            Token::LeftParen,
+            Token::Number(2.0),
+            Token::Comma,
+            Token::Number(3.0),
+            Token::Comma,
+            Token::Number(4.0),
+            Token::RightParen,
+        ];
+
+        let result3 = executor.execute_statement(&tokens3, &mut mem, &mut evaluator).unwrap();
+        assert!(result3);
+
+        // Check if both arrays were created
+        let array_c = mem.arrays().get("C").unwrap();
+        assert_eq!(array_c.dimensions, vec![5]);
+
+        let array_d = mem.arrays().get("D").unwrap();
+        assert_eq!(array_d.dimensions, vec![2, 3, 4]);
+        assert_eq!(array_d.data.len(), 24); // 2 * 3 * 4 = 24
     }
 }

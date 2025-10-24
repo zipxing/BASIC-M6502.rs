@@ -50,7 +50,12 @@ impl Lexer {
                 'A'..='Z' | 'a'..='z' => {
                     // Try to parse as keyword first, then as identifier
                     let identifier = self.parse_identifier()?;
-                    if let Some(keyword) = keyword_to_token(&identifier) {
+
+                    // Special handling for REM - everything after REM is ignored
+                    if identifier == "REM" {
+                        // Skip rest of line - REM is a comment
+                        break;
+                    } else if let Some(keyword) = keyword_to_token(&identifier) {
                         tokens.push(keyword);
                     } else {
                         // Check if it's a function name ending with $
@@ -247,11 +252,13 @@ impl Lexer {
     }
 
     /// Peek at the next character without advancing
+    #[allow(dead_code)]
     fn peek(&self) -> Option<char> {
         self.input.chars().nth(self.position + 1)
     }
 
     /// Peek at the character after next
+    #[allow(dead_code)]
     fn peek_next(&self) -> Option<char> {
         self.input.chars().nth(self.position + 2)
     }
@@ -345,6 +352,38 @@ mod tests {
             Token::Comma,
             Token::Number(3.0),
             Token::RightParen,
+        ]);
+    }
+
+    #[test]
+    fn test_rem_comment() {
+        let mut lexer = Lexer::new();
+
+        // Test that REM and everything after it is ignored
+        let tokens = lexer.tokenize("10 PRINT HELLO").unwrap();
+        assert_eq!(tokens, vec![
+            Token::LineNumber(10),
+            Token::Print,
+            Token::Identifier("HELLO".to_string()),
+        ]);
+
+        // Test REM with content after it - should only tokenize up to REM
+        let tokens = lexer.tokenize("10 REM This is a comment PRINT \"THIS WON'T PRINT\"").unwrap();
+        assert_eq!(tokens, vec![
+            Token::LineNumber(10),
+            Token::Rem,
+        ]);
+
+        // Test REM at beginning without line number
+        let tokens = lexer.tokenize("REM This entire line is a comment").unwrap();
+        assert_eq!(tokens, vec![
+            Token::Rem,
+        ]);
+
+        // Test REM with mixed case
+        let tokens = lexer.tokenize("ReM This is also a comment").unwrap();
+        assert_eq!(tokens, vec![
+            Token::Rem,
         ]);
     }
 

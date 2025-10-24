@@ -2,6 +2,8 @@
 //!
 //! Helper functions for floating point operations.
 
+#[allow(dead_code)]
+
 /// Helper function for floating point comparison
 pub fn float_eq(a: f64, b: f64, epsilon: f64) -> bool {
     (a - b).abs() < epsilon
