@@ -55,6 +55,8 @@ pub enum Token {
     Atn,     // 176
     Peek,    // 177
     Len,     // 178
+    Space,   // 178 (SPACE$)
+    Tab,     // 178 (TAB)
     Str,     // 179 (STR$)
     Val,     // 180
     Asc,     // 181
@@ -62,6 +64,7 @@ pub enum Token {
     Left,    // 183 (LEFT$)
     Right,   // 184 (RIGHT$)
     Mid,     // 185 (MID$)
+    Instr,   // INSTR function
 
     // Operators - corresponding to OPTAB
     Plus,        // +
@@ -180,8 +183,8 @@ impl Token {
             Token::Sgn | Token::Int | Token::Abs | Token::Fre | Token::Pos |
             Token::Sqr | Token::Rnd | Token::Log | Token::Exp | Token::Cos |
             Token::Sin | Token::Tan | Token::Atn | Token::Peek | Token::Len |
-            Token::Str | Token::Val | Token::Asc | Token::Chr | Token::Left |
-            Token::Right | Token::Mid
+            Token::Space | Token::Tab | Token::Str | Token::Val | Token::Asc | Token::Chr | Token::Left |
+            Token::Right | Token::Mid | Token::Instr
         )
     }
 
@@ -288,6 +291,8 @@ pub fn keyword_to_token(keyword: &str) -> Option<Token> {
         "POS" => Some(Token::Pos),
         "SQR" => Some(Token::Sqr),
         "RND" => Some(Token::Rnd),
+        "SPACE$" => Some(Token::Space),
+        "TAB" => Some(Token::Tab),
         "LOG" => Some(Token::Log),
         "EXP" => Some(Token::Exp),
         "COS" => Some(Token::Cos),
@@ -303,6 +308,7 @@ pub fn keyword_to_token(keyword: &str) -> Option<Token> {
         "LEFT$" => Some(Token::Left),
         "RIGHT$" => Some(Token::Right),
         "MID$" => Some(Token::Mid),
+        "INSTR" => Some(Token::Instr),
         "AND" => Some(Token::And),
         "OR" => Some(Token::Or),
         "NOT" => Some(Token::Not),

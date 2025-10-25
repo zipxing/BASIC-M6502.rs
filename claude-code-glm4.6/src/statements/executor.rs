@@ -32,33 +32,67 @@ impl StatementExecutor {
         mem: &mut MemoryManager,
         evaluator: &mut ExpressionEvaluator,
     ) -> BasicResult<bool> {
+        self.execute_statement_from(tokens, mem, evaluator, 0).map(|_| true)
+    }
+
+    /// Execute statements starting from a specific statement index
+    /// Returns the next statement index to execute (for single-line FOR loops)
+    pub fn execute_statement_from(
+        &mut self,
+        tokens: &[Token],
+        mem: &mut MemoryManager,
+        evaluator: &mut ExpressionEvaluator,
+        start_statement_idx: usize,
+    ) -> BasicResult<usize> {
         if tokens.is_empty() {
-            return Ok(true); // Empty line, continue execution
+            return Ok(0); // Empty line
         }
 
-        // Split by colons to handle multiple statements on one line
-        let mut statement_start = 0;
+        // Find all statement boundaries (split by colons)
+        let mut statement_boundaries = vec![0];
         for (i, token) in tokens.iter().enumerate() {
             if matches!(token, Token::Colon) {
-                // Execute the statement before the colon
-                if statement_start < i {
-                    let statement_tokens = &tokens[statement_start..i];
-                    if !self.execute_single_statement(statement_tokens, mem, evaluator)? {
-                        return Ok(false); // End program execution
-                    }
+                statement_boundaries.push(i + 1);
+            }
+        }
+        statement_boundaries.push(tokens.len());
+
+        // Execute statements starting from start_statement_idx
+        let mut current_idx = start_statement_idx;
+        while current_idx < statement_boundaries.len() - 1 {
+            let start = statement_boundaries[current_idx];
+            let end = statement_boundaries[current_idx + 1];
+            
+            // Skip empty statements
+            if start >= end || (end > start && tokens[start..end].iter().all(|t| matches!(t, Token::Colon))) {
+                current_idx += 1;
+                continue;
+            }
+            
+            let statement_tokens = &tokens[start..end];
+            let statement_tokens = if !statement_tokens.is_empty() && matches!(statement_tokens[statement_tokens.len()-1], Token::Colon) {
+                &statement_tokens[..statement_tokens.len()-1]
+            } else {
+                statement_tokens
+            };
+            
+            if statement_tokens.is_empty() {
+                current_idx += 1;
+                continue;
+            }
+            
+            match self.execute_single_statement_with_index(statement_tokens, mem, evaluator, current_idx) {
+                Ok(true) => {
+                    current_idx += 1; // Continue to next statement
                 }
-                statement_start = i + 1; // Start after the colon
-                continue; // Skip to next token
+                Ok(false) => {
+                    return Ok(statement_boundaries.len()); // End program
+                }
+                Err(e) => return Err(e),
             }
         }
 
-        // Execute the last statement (or the only statement if no colons)
-        if statement_start < tokens.len() {
-            let statement_tokens = &tokens[statement_start..];
-            return self.execute_single_statement(statement_tokens, mem, evaluator);
-        }
-
-        Ok(true)
+        Ok(current_idx)
     }
 
     /// Execute a single statement (no colons)
@@ -67,6 +101,17 @@ impl StatementExecutor {
         tokens: &[Token],
         mem: &mut MemoryManager,
         evaluator: &mut ExpressionEvaluator,
+    ) -> BasicResult<bool> {
+        self.execute_single_statement_with_index(tokens, mem, evaluator, 0)
+    }
+
+    /// Execute a single statement with statement index information
+    fn execute_single_statement_with_index(
+        &mut self,
+        tokens: &[Token],
+        mem: &mut MemoryManager,
+        evaluator: &mut ExpressionEvaluator,
+        statement_idx: usize,
     ) -> BasicResult<bool> {
         if tokens.is_empty() {
             return Ok(true); // Empty statement, continue execution
@@ -81,7 +126,7 @@ impl StatementExecutor {
             Token::Gosub => self.execute_gosub(&tokens[1..], mem),
             Token::Return => self.execute_return(mem),
             Token::If => self.execute_if(&tokens[1..], mem, evaluator),
-            Token::For => self.execute_for(&tokens[1..], mem, evaluator),
+            Token::For => self.execute_for_with_index(&tokens[1..], mem, evaluator, statement_idx),
             Token::Next => self.execute_next(&tokens[1..], mem, evaluator),
             Token::Data => self.execute_data(&tokens[1..], mem),
             Token::Read => self.execute_read(&tokens[1..], mem, evaluator),
@@ -90,6 +135,13 @@ impl StatementExecutor {
             Token::Load => self.execute_load(&tokens[1..], mem),
             Token::Save => self.execute_save(&tokens[1..], mem),
             Token::End => Ok(false), // End program execution
+            Token::Stop => {
+                // STOP pauses execution - in interactive mode user could CONT
+                // For now, just end execution like END
+                println!("BREAK");
+                Ok(false)
+            }
+            Token::On => self.execute_on(&tokens[1..], mem, evaluator),
             Token::Rem => Ok(true), // Remark - do nothing
             _ => {
                 // If no statement keyword, try to evaluate as expression (implicitly LET)
@@ -109,16 +161,100 @@ impl StatementExecutor {
             return Err(BasicError::Syntax);
         }
 
-        // Check for assignment operator
-        if !matches!(tokens[1], Token::Equal) {
-            return Err(BasicError::Syntax);
-        }
-
-        // Get variable name
+        // Get variable/array name
         let var_name = match &tokens[0] {
             Token::Identifier(name) => name,
             _ => return Err(BasicError::Syntax),
         };
+
+        // Check if this is an array assignment: A(i) = value or A(i,j) = value
+        if tokens.len() > 1 && tokens[1] == Token::LeftParen {
+            // Array assignment
+            let mut i = 2; // Skip identifier and left paren
+            let mut indices = Vec::new();
+
+            // Parse array indices
+            loop {
+                // Find the end of this index expression (comma or right paren)
+                let mut end = i;
+                let mut paren_depth = 0;
+                while end < tokens.len() {
+                    match &tokens[end] {
+                        Token::LeftParen => paren_depth += 1,
+                        Token::RightParen if paren_depth == 0 => break,
+                        Token::RightParen => paren_depth -= 1,
+                        Token::Comma if paren_depth == 0 => break,
+                        _ => {}
+                    }
+                    end += 1;
+                }
+
+                // Evaluate the index expression
+                let index_value = evaluator.evaluate(&tokens[i..end], mem)?;
+                indices.push(index_value.to_float()? as usize);
+
+                i = end;
+                if i >= tokens.len() {
+                    return Err(BasicError::Syntax);
+                }
+
+                match &tokens[i] {
+                    Token::Comma => {
+                        i += 1; // Skip comma
+                        continue;
+                    }
+                    Token::RightParen => {
+                        i += 1; // Skip right paren
+                        break;
+                    }
+                    _ => return Err(BasicError::Syntax),
+                }
+            }
+
+            // Check for equal sign
+            if i >= tokens.len() || !matches!(tokens[i], Token::Equal) {
+                return Err(BasicError::Syntax);
+            }
+            i += 1; // Skip equal sign
+
+            // Evaluate the value expression
+            let value = evaluator.evaluate(&tokens[i..], mem)?;
+
+            // Get the array
+            let array = mem.arrays_mut().get_mut(var_name)
+                .ok_or_else(|| BasicError::VariableNotFound(var_name.clone()))?;
+
+            // Check dimensions match
+            if indices.len() != array.dimensions.len() {
+                return Err(BasicError::Syntax);
+            }
+
+            // Convert to linear index
+            let mut linear_index = 0;
+            let mut multiplier = 1;
+            for idx in (0..indices.len()).rev() {
+                // array.dimensions already includes the +1 adjustment from DIM
+                if indices[idx] >= array.dimensions[idx] {
+                    return Err(BasicError::BadSubscript);
+                }
+                linear_index += indices[idx] * multiplier;
+                multiplier *= array.dimensions[idx];
+            }
+
+            // Set the array element
+            if linear_index >= array.data.len() {
+                return Err(BasicError::BadSubscript);
+            }
+            array.data[linear_index] = value;
+
+            return Ok(true);
+        }
+
+        // Regular variable assignment
+        // Check for assignment operator
+        if !matches!(tokens[1], Token::Equal) {
+            return Err(BasicError::Syntax);
+        }
 
         // Evaluate the expression on the right side
         let value = evaluator.evaluate(&tokens[2..], mem)?;
@@ -136,27 +272,28 @@ impl StatementExecutor {
         mem: &mut MemoryManager,
         evaluator: &mut ExpressionEvaluator,
     ) -> BasicResult<bool> {
-        // Look for assignment operator
-        let equal_pos = tokens.iter().position(|t| matches!(t, Token::Equal));
+        // Look for assignment operator (but not inside parentheses)
+        let mut equal_pos = None;
+        let mut paren_depth = 0;
+        for (i, token) in tokens.iter().enumerate() {
+            match token {
+                Token::LeftParen => paren_depth += 1,
+                Token::RightParen => paren_depth -= 1,
+                Token::Equal if paren_depth == 0 => {
+                    equal_pos = Some(i);
+                    break;
+                }
+                _ => {}
+            }
+        }
 
         if let Some(pos) = equal_pos {
             if pos == 0 || pos == tokens.len() - 1 {
                 return Err(BasicError::Syntax);
             }
 
-            // Get variable name
-            let var_name = match &tokens[0] {
-                Token::Identifier(name) => name,
-                _ => return Err(BasicError::Syntax),
-            };
-
-            // Evaluate the expression after the equal sign
-            let value = evaluator.evaluate(&tokens[pos + 1..], mem)?;
-
-            // Store the variable
-            mem.set_variable(var_name.clone(), value)?;
-
-            Ok(true)
+            // Use execute_let to handle both regular and array assignments
+            return self.execute_let(tokens, mem, evaluator);
         } else {
             // If no assignment operator, just evaluate the expression
             evaluator.evaluate(tokens, mem)?;
@@ -183,10 +320,15 @@ impl StatementExecutor {
 
         while i < tokens.len() {
             // Find the next separator or end of tokens
+            // Need to track parenthesis depth to avoid breaking on commas inside function calls
             let mut end = i;
+            let mut paren_depth = 0;
             while end < tokens.len() {
-                if matches!(tokens[end], Token::Comma | Token::Semicolon) {
-                    break;
+                match &tokens[end] {
+                    Token::LeftParen => paren_depth += 1,
+                    Token::RightParen => paren_depth -= 1,
+                    Token::Comma | Token::Semicolon if paren_depth == 0 => break,
+                    _ => {}
                 }
                 end += 1;
             }
@@ -262,7 +404,7 @@ impl StatementExecutor {
 
         let mut i = 0;
         let mut prompt = String::new();
-        let variable_name: String;
+        let mut variable_names = Vec::new();
 
         // Check if first token is a string (prompt)
         if let Token::String(s) = &tokens[0] {
@@ -277,7 +419,7 @@ impl StatementExecutor {
             match &tokens[i] {
                 Token::Semicolon => {
                     // Semicolon means add "?" to prompt
-                    prompt.push('?');
+                    prompt.push(' ');
                     i += 1;
                 }
                 Token::Comma => {
@@ -289,17 +431,26 @@ impl StatementExecutor {
         } else {
             // No prompt, use default "?"
             prompt.push('?');
+            prompt.push(' ');
         }
 
-        // Get variable name
-        if i >= tokens.len() {
+        // Collect all variable names
+        while i < tokens.len() {
+            match &tokens[i] {
+                Token::Identifier(name) => {
+                    variable_names.push(name.clone());
+                    i += 1;
+                }
+                Token::Comma => {
+                    i += 1; // Skip comma
+                }
+                _ => return Err(BasicError::Syntax),
+            }
+        }
+
+        if variable_names.is_empty() {
             return Err(BasicError::Syntax);
         }
-
-        variable_name = match &tokens[i] {
-            Token::Identifier(name) => name.clone(),
-            _ => return Err(BasicError::Syntax),
-        };
 
         // Display prompt
         print!("{}", prompt);
@@ -309,20 +460,30 @@ impl StatementExecutor {
         let mut input = String::new();
         io::stdin().read_line(&mut input).map_err(|_| BasicError::InputError("Failed to read input".to_string()))?;
 
-        // Trim newline and convert to appropriate value
-        let input = input.trim();
-        let value = if variable_name.ends_with('$') {
-            // String variable
-            crate::runtime::memory::Value::String(input.to_string())
-        } else {
-            // Numeric variable - try to parse as number
-            input.parse::<f64>()
-                .map(crate::runtime::memory::Value::Float)
-                .map_err(|_| BasicError::InputError("Invalid number".to_string()))?
-        };
+        // Split input by commas and trim each part
+        let input_parts: Vec<&str> = input.trim().split(',').map(|s| s.trim()).collect();
 
-        // Store the variable
-        mem.set_variable(variable_name, value)?;
+        // Assign values to variables
+        for (idx, variable_name) in variable_names.iter().enumerate() {
+            let input_value = if idx < input_parts.len() {
+                input_parts[idx]
+            } else {
+                "" // If not enough inputs, use empty string
+            };
+
+            let value = if variable_name.ends_with('$') {
+                // String variable
+                crate::runtime::memory::Value::String(input_value.to_string())
+            } else {
+                // Numeric variable - try to parse as number
+                input_value.parse::<f64>()
+                    .map(crate::runtime::memory::Value::Float)
+                    .unwrap_or(crate::runtime::memory::Value::Float(0.0)) // Default to 0 on parse error
+            };
+
+            // Store the variable
+            mem.set_variable(variable_name.clone(), value)?;
+        }
 
         Ok(true)
     }
@@ -481,6 +642,17 @@ impl StatementExecutor {
         mem: &mut MemoryManager,
         evaluator: &mut ExpressionEvaluator,
     ) -> BasicResult<bool> {
+        self.execute_for_with_index(tokens, mem, evaluator, 0)
+    }
+
+    /// Execute FOR statement with statement index
+    fn execute_for_with_index(
+        &mut self,
+        tokens: &[Token],
+        mem: &mut MemoryManager,
+        evaluator: &mut ExpressionEvaluator,
+        statement_idx: usize,
+    ) -> BasicResult<bool> {
         // FOR syntax: FOR variable = start TO end [STEP step]
         if tokens.len() < 5 {
             return Err(BasicError::Syntax);
@@ -540,29 +712,43 @@ impl StatementExecutor {
         // Create FOR loop context
         let current_line = mem.current_line();
 
-        // Find the actual next line in the program execution order
-        let next_line = {
+        // Check if this is a single-line FOR loop by looking at the current line's tokens
+        // Get all tokens from the current line
+        let current_line_tokens = if let Some(program_line) = mem.get_line(current_line) {
+            program_line.tokens.clone()
+        } else {
+            vec![]
+        };
+        
+        // Check if there's a NEXT token after the current position (single-line FOR)
+        let is_single_line_for = current_line_tokens.iter().skip(1).any(|t| matches!(t, Token::Next));
+        
+        let next_line = if is_single_line_for {
+            // Single-line FOR: next_line should be current_line
+            current_line
+        } else {
+            // Multi-line FOR: next_line is the next line in execution order
             let execution_order = mem.get_execution_order();
             if let Some(current_idx) = execution_order.iter().position(|&line| line == current_line) {
                 if current_idx + 1 < execution_order.len() {
                     execution_order[current_idx + 1]
                 } else {
-                    // This is the last line in the program, use current_line + 1 as fallback
                     current_line + 1
                 }
             } else {
-                // Fallback to current_line + 1 if not found in execution order
                 current_line + 1
             }
         };
 
-        let for_loop = ForLoop::new(
+        // Create FOR loop - use new_with_statement to support single-line FOR loops
+        let for_loop = ForLoop::new_with_statement(
             variable_name,
             start_value,
             end_value,
             step_value,
             current_line,
             next_line,
+            statement_idx + 1, // Next statement after FOR
         );
 
         // Push onto for stack
@@ -624,9 +810,18 @@ impl StatementExecutor {
 
         // Check if the loop should continue
         if for_loop.should_continue(&new_value)? {
-            // Continue the loop - jump back to the line after the FOR statement
+            // Continue the loop - jump back to the line/statement after FOR
             let jump_to_line = for_loop.next_line;
-            return Err(BasicError::GotoJump(jump_to_line));
+            let current_line = mem.current_line();
+            
+            // Check if this is a single-line FOR loop (FOR and NEXT on the same line)
+            if jump_to_line == current_line && for_loop.next_statement > 0 {
+                // Single-line FOR loop - jump to specific statement
+                return Err(BasicError::GotoJumpWithStatement(jump_to_line, for_loop.next_statement));
+            } else {
+                // Multi-line FOR loop - jump to next line
+                return Err(BasicError::GotoJump(jump_to_line));
+            }
         } else {
             // Loop is done, pop it from the stack
             mem.pop_for_loop();
@@ -823,6 +1018,85 @@ impl StatementExecutor {
         Ok(true)
     }
 
+    /// Execute ON statement: ON expression GOSUB line1, line2, line3...
+    fn execute_on(
+        &mut self,
+        tokens: &[Token],
+        mem: &mut MemoryManager,
+        evaluator: &mut ExpressionEvaluator,
+    ) -> BasicResult<bool> {
+        if tokens.is_empty() {
+            return Err(BasicError::Syntax);
+        }
+
+        // Find GOSUB or GOTO keyword
+        let mut gosub_pos = 0;
+        let mut is_gosub = false;
+        while gosub_pos < tokens.len() {
+            match &tokens[gosub_pos] {
+                Token::Gosub => {
+                    is_gosub = true;
+                    break;
+                }
+                Token::Goto => {
+                    is_gosub = false;
+                    break;
+                }
+                _ => gosub_pos += 1,
+            }
+        }
+
+        if gosub_pos >= tokens.len() {
+            return Err(BasicError::Syntax);
+        }
+
+        // Evaluate the expression before GOSUB/GOTO
+        let expression_tokens = &tokens[..gosub_pos];
+        let value = evaluator.evaluate(expression_tokens, mem)?;
+        let index = value.to_float()? as usize;
+
+        // Parse the list of line numbers after GOSUB/GOTO
+        let mut line_numbers = Vec::new();
+        let mut i = gosub_pos + 1;
+        while i < tokens.len() {
+            match &tokens[i] {
+                Token::Number(n) => {
+                    line_numbers.push(*n as u16);
+                }
+                Token::Comma => {
+                    // Skip commas
+                }
+                _ => return Err(BasicError::Syntax),
+            }
+            i += 1;
+        }
+
+        // Check if index is valid (1-based)
+        if index < 1 || index > line_numbers.len() {
+            // Out of range - do nothing (just continue)
+            return Ok(true);
+        }
+
+        let target_line = line_numbers[index - 1];
+
+        // Check if the target line exists
+        if !mem.program_lines().contains_key(&target_line) {
+            return Err(BasicError::LineNumberNotFound(target_line));
+        }
+
+        if is_gosub {
+            // Push return address onto the stack
+            let current_line = mem.current_line();
+            mem.push_gosub_return(current_line);
+            mem.set_current_line(target_line);
+            Err(BasicError::GosubJump(target_line))
+        } else {
+            // GOTO
+            mem.set_current_line(target_line);
+            Err(BasicError::GotoJump(target_line))
+        }
+    }
+
     /// Execute DIM statement: DIM array1(size1), array2(size2, size3)...
     fn execute_dim(&mut self, tokens: &[Token], mem: &mut MemoryManager) -> BasicResult<bool> {
         if tokens.is_empty() {
@@ -878,17 +1152,26 @@ impl StatementExecutor {
             }
 
             // Create the array with initial zero values
-            let total_elements = dimensions.iter().product();
+            // In BASIC, DIM A(10) creates array with indices 0-10 (11 elements)
+            // So we need to add 1 to each dimension
+            let adjusted_dimensions: Vec<usize> = dimensions.iter().map(|&d| d + 1).collect();
+            let total_elements: usize = adjusted_dimensions.iter().product();
             let mut data = Vec::with_capacity(total_elements);
             for _ in 0..total_elements {
-                data.push(Value::Float(0.0));
+                if array_name.ends_with('$') {
+                    // String array - initialize with empty strings
+                    data.push(Value::String(String::new()));
+                } else {
+                    // Numeric array - initialize with 0
+                    data.push(Value::Float(0.0));
+                }
             }
 
             // Store the array in memory
             use crate::runtime::memory::Array;
             let array = Array {
                 name: array_name.clone(),
-                dimensions,
+                dimensions: adjusted_dimensions,
                 data,
             };
 
@@ -1839,10 +2122,11 @@ mod tests {
         assert!(result1);
 
         // Check if array was created
+        // DIM A(10) creates array with indices 0-10 (11 elements total)
         let array = mem.arrays().get("A").unwrap();
         assert_eq!(array.name, "A");
-        assert_eq!(array.dimensions, vec![10]);
-        assert_eq!(array.data.len(), 10);
+        assert_eq!(array.dimensions, vec![11]); // 0-10 = 11 elements
+        assert_eq!(array.data.len(), 11);
         assert_eq!(array.data[0], Value::Float(0.0)); // Should be initialized to 0
 
         // Test multi-dimension array: DIM B(3,4)
@@ -1860,10 +2144,11 @@ mod tests {
         assert!(result2);
 
         // Check if multi-dimensional array was created
+        // DIM B(3,4) creates array with indices 0-3, 0-4 (4*5 = 20 elements total)
         let array_b = mem.arrays().get("B").unwrap();
         assert_eq!(array_b.name, "B");
-        assert_eq!(array_b.dimensions, vec![3, 4]);
-        assert_eq!(array_b.data.len(), 12); // 3 * 4 = 12
+        assert_eq!(array_b.dimensions, vec![4, 5]); // 0-3, 0-4
+        assert_eq!(array_b.data.len(), 20); // 4 * 5 = 20
 
         // Test multiple arrays: DIM C(5), D(2,3,4)
         let tokens3 = vec![
@@ -1887,12 +2172,14 @@ mod tests {
         assert!(result3);
 
         // Check if both arrays were created
+        // DIM C(5) creates 0-5 (6 elements)
         let array_c = mem.arrays().get("C").unwrap();
-        assert_eq!(array_c.dimensions, vec![5]);
+        assert_eq!(array_c.dimensions, vec![6]); // 0-5 = 6 elements
 
+        // DIM D(2,3,4) creates 0-2, 0-3, 0-4 (3*4*5 = 60 elements)
         let array_d = mem.arrays().get("D").unwrap();
-        assert_eq!(array_d.dimensions, vec![2, 3, 4]);
-        assert_eq!(array_d.data.len(), 24); // 2 * 3 * 4 = 24
+        assert_eq!(array_d.dimensions, vec![3, 4, 5]); // 0-2, 0-3, 0-4
+        assert_eq!(array_d.data.len(), 60); // 3 * 4 * 5 = 60
     }
 
     #[test]

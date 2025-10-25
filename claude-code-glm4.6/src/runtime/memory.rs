@@ -213,6 +213,7 @@ pub struct ForLoop {
     pub step_value: Value,
     pub current_line: u16,
     pub next_line: u16,  // Line number after the FOR statement
+    pub next_statement: usize, // Statement index after the FOR statement (for single-line loops)
 }
 
 impl ForLoop {
@@ -225,6 +226,20 @@ impl ForLoop {
             step_value: step,
             current_line,
             next_line,
+            next_statement: 0,
+        }
+    }
+    
+    /// Create a new FOR loop context with statement index (for single-line loops)
+    pub fn new_with_statement(variable_name: String, start: Value, end: Value, step: Value, current_line: u16, next_line: u16, next_statement: usize) -> Self {
+        Self {
+            variable_name,
+            start_value: start,
+            end_value: end,
+            step_value: step,
+            current_line,
+            next_line,
+            next_statement,
         }
     }
 

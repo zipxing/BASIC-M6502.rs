@@ -222,8 +222,65 @@ impl ExpressionEvaluator {
             Token::Number(n) => Ok(Value::Float(*n)),
             Token::String(s) => Ok(Value::String(s.clone())),
             Token::Identifier(name) => {
-                // Look up variable value
-                mem.get_variable(name).cloned()
+                // Check if this is an array access (identifier followed by left paren)
+                if self.position + 1 < tokens.len() && tokens[self.position + 1] == Token::LeftParen {
+                    // Array access: A(i) or A(i,j)
+                    self.position += 2; // Skip identifier and left paren
+
+                    // Parse indices
+                    let mut indices = Vec::new();
+                    loop {
+                        // Parse the index expression
+                        let index_value = self.parse_logical_or(tokens, mem)?;
+                        let index = index_value.to_float()? as usize;
+                        indices.push(index);
+
+                        // Check for comma (more indices) or right paren (done)
+                        if self.position >= tokens.len() {
+                            return Err(BasicError::ExpectedRightParen);
+                        }
+
+                        match &tokens[self.position] {
+                            Token::Comma => {
+                                self.position += 1; // Skip comma
+                                continue;
+                            }
+                            Token::RightParen => {
+                                self.position += 1; // Skip right paren
+                                break;
+                            }
+                            _ => return Err(BasicError::Syntax),
+                        }
+                    }
+
+                    // Get the array value
+                    let array = mem.arrays().get(name)
+                        .ok_or_else(|| BasicError::VariableNotFound(name.clone()))?;
+
+                    // Convert indices to linear index
+                    if indices.len() != array.dimensions.len() {
+                        return Err(BasicError::Syntax);
+                    }
+
+                    let mut linear_index = 0;
+                    let mut multiplier = 1;
+                    for i in (0..indices.len()).rev() {
+                        // array.dimensions already includes the +1 adjustment from DIM
+                        if indices[i] >= array.dimensions[i] {
+                            return Err(BasicError::BadSubscript);
+                        }
+                        linear_index += indices[i] * multiplier;
+                        multiplier *= array.dimensions[i];
+                    }
+
+                    // Return the array element (don't advance position, already advanced)
+                    return Ok(array.data.get(linear_index)
+                        .ok_or(BasicError::BadSubscript)?
+                        .clone());
+                } else {
+                    // Regular variable lookup
+                    mem.get_variable(name).cloned()
+                }
             }
             Token::LeftParen => {
                 // Handle parenthesized expression
@@ -261,18 +318,66 @@ impl ExpressionEvaluator {
                 Ok(Value::Float(f.sqrt()))
             }),
 
-            Token::Rnd => {
-                self.position += 1;
-                // Simple random number implementation
+            Token::Rnd => self.evaluate_unary_function(tokens, mem, |_v| {
+                // Simple random number implementation - RND(n) returns random between 0 and 1
                 use std::collections::hash_map::DefaultHasher;
                 use std::hash::{Hash, Hasher};
                 let mut hasher = DefaultHasher::new();
                 std::time::SystemTime::now().hash(&mut hasher);
                 let random = (hasher.finish() % 1000000) as f64 / 1000000.0;
                 Ok(Value::Float(random))
-            }
+            }),
+
+            Token::Exp => self.evaluate_unary_function(tokens, mem, |v| {
+                let f = v.to_float()?;
+                Ok(Value::Float(f.exp()))
+            }),
+
+            Token::Log => self.evaluate_unary_function(tokens, mem, |v| {
+                let f = v.to_float()?;
+                if f <= 0.0 {
+                    return Err(BasicError::IllegalQuantity);
+                }
+                Ok(Value::Float(f.ln()))
+            }),
+
+            Token::Sin => self.evaluate_unary_function(tokens, mem, |v| {
+                let f = v.to_float()?;
+                Ok(Value::Float(f.sin()))
+            }),
+
+            Token::Cos => self.evaluate_unary_function(tokens, mem, |v| {
+                let f = v.to_float()?;
+                Ok(Value::Float(f.cos()))
+            }),
+
+            Token::Tan => self.evaluate_unary_function(tokens, mem, |v| {
+                let f = v.to_float()?;
+                Ok(Value::Float(f.tan()))
+            }),
+
+            Token::Atn => self.evaluate_unary_function(tokens, mem, |v| {
+                let f = v.to_float()?;
+                Ok(Value::Float(f.atan()))
+            }),
 
             // String functions
+            Token::Len => self.evaluate_unary_function(tokens, mem, |v| {
+                let s = match v {
+                    Value::String(s) => s,
+                    _ => return Err(BasicError::TypeMismatch),
+                };
+                Ok(Value::Float(s.len() as f64))
+            }),
+            Token::Space => self.evaluate_unary_function(tokens, mem, |v| {
+                let count = v.to_float()? as usize;
+                Ok(Value::String(" ".repeat(count)))
+            }),
+            Token::Tab => self.evaluate_unary_function(tokens, mem, |v| {
+                let position = v.to_float()? as usize;
+                Ok(Value::String(" ".repeat(position)))
+            }),
+
             Token::Left => self.evaluate_binary_function(tokens, mem, |str_val, len_val| {
                 let s = match str_val {
                     Value::String(s) => s,
@@ -336,7 +441,12 @@ impl ExpressionEvaluator {
                     Value::String(s) => s,
                     _ => return Err(BasicError::TypeMismatch),
                 };
-                s.parse::<f64>()
+                // Trim whitespace from the string before parsing
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    return Ok(Value::Float(0.0)); // VAL of empty string is 0 in BASIC
+                }
+                trimmed.parse::<f64>()
                     .map(Value::Float)
                     .map_err(|_| BasicError::TypeMismatch)
             }),
@@ -359,6 +469,24 @@ impl ExpressionEvaluator {
                 }
                 let ch = f as u8 as char;
                 Ok(Value::String(ch.to_string()))
+            }),
+
+            Token::Instr => self.evaluate_binary_function(tokens, mem, |haystack_val, needle_val| {
+                let haystack = match haystack_val {
+                    Value::String(s) => s,
+                    _ => return Err(BasicError::TypeMismatch),
+                };
+                let needle = match needle_val {
+                    Value::String(s) => s,
+                    _ => return Err(BasicError::TypeMismatch),
+                };
+                
+                // INSTR returns 1-based index, 0 if not found
+                if let Some(pos) = haystack.find(&needle) {
+                    Ok(Value::Float((pos + 1) as f64))
+                } else {
+                    Ok(Value::Float(0.0))
+                }
             }),
 
             // Handle unary minus
@@ -865,7 +993,7 @@ mod tests {
     #[test]
     fn test_random_function() {
         // Just test that RND returns a valid float
-        let result = evaluate_expression("RND").unwrap();
+        let result = evaluate_expression("RND(1)").unwrap();
         match result {
             Value::Float(f) => assert!(f >= 0.0 && f < 1.0),
             _ => panic!("RND should return a float"),

@@ -118,6 +118,10 @@ pub enum BasicError {
     /// Control flow jumps (not really errors, but used for control flow)
     #[error("GOTO jump to line: {0}")]
     GotoJump(u16),
+    
+    /// Jump to specific line and statement (for single-line FOR loops)
+    #[error("GOTO jump to line: {0}, statement: {1}")]
+    GotoJumpWithStatement(u16, usize),
 
     #[error("GOSUB jump to line: {0}")]
     GosubJump(u16),

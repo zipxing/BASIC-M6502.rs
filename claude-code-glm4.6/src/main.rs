@@ -222,6 +222,75 @@ fn run_program(mem: &mut MemoryManager, executor: &mut StatementExecutor, evalua
                         break;
                     }
                 }
+                Err(BasicError::GotoJumpWithStatement(jump_line, statement_idx)) => {
+                    // Jump to specific line and statement (for single-line FOR loops)
+                    // Use a loop to handle recursive GotoJumpWithStatement
+                    let mut current_jump_line = jump_line;
+                    let mut current_statement_idx = statement_idx;
+                    
+                    loop {
+                        if let Some(jump_idx) = execution_order.iter().position(|&x| x == current_jump_line) {
+                            current_line_idx = jump_idx;
+                            mem.set_current_line(current_jump_line);
+                            
+                            // Get the line tokens
+                            let jump_line_tokens = if let Some(program_line) = mem.get_line(current_jump_line) {
+                                program_line.tokens.clone()
+                            } else {
+                                eprintln!("LINE {} NOT FOUND", current_jump_line);
+                                break;
+                            };
+                            let jump_tokens = &jump_line_tokens[1..];
+                            
+                            // Execute from the specified statement index
+                            match executor.execute_statement_from(jump_tokens, mem, evaluator, current_statement_idx) {
+                                Ok(_) => {
+                                    // Statement execution completed normally, continue to next line
+                                    current_line_idx += 1;
+                                    break; // Exit the inner loop, will continue with outer while loop
+                                }
+                                Err(BasicError::GotoJumpWithStatement(j, s)) => {
+                                    // Another statement-level jump - continue the loop
+                                    current_jump_line = j;
+                                    current_statement_idx = s;
+                                    continue;
+                                }
+                                Err(BasicError::GotoJump(j)) => {
+                                    // Regular line jump
+                                    if let Some(idx) = execution_order.iter().position(|&x| x == j) {
+                                        current_line_idx = idx;
+                                    } else {
+                                        eprintln!("LINE {} NOT FOUND", j);
+                                    }
+                                    break;
+                                }
+                                Err(BasicError::GosubJump(j)) => {
+                                    if let Some(idx) = execution_order.iter().position(|&x| x == j) {
+                                        current_line_idx = idx;
+                                    } else {
+                                        eprintln!("LINE {} NOT FOUND", j);
+                                    }
+                                    break;
+                                }
+                                Err(BasicError::ReturnJump(j)) => {
+                                    if let Some(idx) = execution_order.iter().position(|&x| x == j) {
+                                        current_line_idx = idx + 1;
+                                    } else {
+                                        eprintln!("RETURN LINE {} NOT FOUND", j);
+                                    }
+                                    break;
+                                }
+                                Err(e) => {
+                                    eprintln!("ERROR ON LINE {}: {}", current_jump_line, e);
+                                    break;
+                                }
+                            }
+                        } else {
+                            eprintln!("LINE {} NOT FOUND", current_jump_line);
+                            break;
+                        }
+                    }
+                }
                 Err(BasicError::GosubJump(jump_line)) => {
                     // Jump to subroutine
                     if let Some(jump_idx) = execution_order.iter().position(|&x| x == jump_line) {

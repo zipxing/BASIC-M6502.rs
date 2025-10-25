@@ -56,6 +56,30 @@ impl Lexer {
                         // Add REM token and skip rest of line - REM is a comment
                         tokens.push(Token::Rem);
                         break;
+                    } else if identifier == "GO" {
+                        // Special handling for "GO TO" - check if next token is "TO"
+                        let saved_pos = self.position;
+                        let saved_char = self.current_char;
+                        
+                        self.skip_whitespace();
+                        
+                        if let Some('T' | 't') = self.current_char {
+                            let next_identifier = self.parse_identifier()?;
+                            if next_identifier == "TO" {
+                                // It's "GO TO", treat as GOTO
+                                tokens.push(Token::Goto);
+                            } else {
+                                // Not "GO TO", restore position and treat "GO" as identifier
+                                self.position = saved_pos;
+                                self.current_char = saved_char;
+                                tokens.push(Token::Identifier(identifier));
+                            }
+                        } else {
+                            // Not followed by TO, restore position and treat as identifier
+                            self.position = saved_pos;
+                            self.current_char = saved_char;
+                            tokens.push(Token::Identifier(identifier));
+                        }
                     } else if let Some(keyword) = keyword_to_token(&identifier) {
                         tokens.push(keyword);
                     } else {
@@ -396,6 +420,52 @@ mod tests {
         assert_eq!(tokens, vec![
             Token::Question,
             Token::Identifier("X".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn test_go_to_syntax() {
+        let mut lexer = Lexer::new();
+
+        // Test "GO TO" with space - should be treated as GOTO
+        let tokens = lexer.tokenize("GO TO 100").unwrap();
+        assert_eq!(tokens, vec![
+            Token::Goto,
+            Token::Number(100.0),
+        ]);
+
+        // Test "GOTO" without space - should work as before
+        let tokens = lexer.tokenize("GOTO 100").unwrap();
+        assert_eq!(tokens, vec![
+            Token::Goto,
+            Token::Number(100.0),
+        ]);
+
+        // Test in IF...THEN statement
+        let tokens = lexer.tokenize("IF X=1 THEN GO TO 200").unwrap();
+        assert_eq!(tokens, vec![
+            Token::If,
+            Token::Identifier("X".to_string()),
+            Token::Equal,
+            Token::Number(1.0),
+            Token::Identifier("THEN".to_string()),
+            Token::Goto,
+            Token::Number(200.0),
+        ]);
+
+        // Test "GO" without "TO" - should be identifier
+        let tokens = lexer.tokenize("GO = 5").unwrap();
+        assert_eq!(tokens, vec![
+            Token::Identifier("GO".to_string()),
+            Token::Equal,
+            Token::Number(5.0),
+        ]);
+
+        // Test lowercase "go to"
+        let tokens = lexer.tokenize("go to 50").unwrap();
+        assert_eq!(tokens, vec![
+            Token::Goto,
+            Token::Number(50.0),
         ]);
     }
 }
