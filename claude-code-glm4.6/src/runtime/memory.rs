@@ -285,6 +285,10 @@ pub struct MemoryManager {
     pub for_stack: Vec<ForLoop>,         // FOR loop stack
     pub gosub_stack: Vec<GosubReturn>,   // GOSUB return stack
 
+    // STOP/CONT support
+    pub break_line: Option<u16>,         // Line where STOP was executed
+    pub break_statement: Option<usize>,  // Statement index where STOP was executed
+
     // String management (simplified for now)
     #[allow(dead_code)]
     string_memory: Vec<String>,
@@ -302,6 +306,8 @@ impl MemoryManager {
             data_values: Vec::new(),
             for_stack: Vec::new(),
             gosub_stack: Vec::new(),
+            break_line: None,
+            break_statement: None,
             string_memory: Vec::new(),
         }
     }

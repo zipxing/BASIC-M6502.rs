@@ -73,6 +73,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // In file mode, automatically run the program and then exit
         println!("Running program...");
         if let Err(e) = run_program(&mut mem, &mut executor, &mut evaluator) {
+            // In file mode, STOP should not allow CONT
+            if matches!(e, BasicError::StopBreak(_, _)) {
+                // STOP in file mode just ends execution
+                println!("Program execution completed. Exiting.");
+                return Ok(());
+            }
             eprintln!("ERROR: {}", e);
         }
 
@@ -111,7 +117,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     "RUN" => {
                         if let Err(e) = run_program(&mut mem, &mut executor, &mut evaluator) {
-                            eprintln!("ERROR: {}", e);
+                            // Only print error if it's not a StopBreak
+                            if !matches!(e, BasicError::StopBreak(_, _)) {
+                                eprintln!("ERROR: {}", e);
+                            }
+                        }
+                        continue;
+                    }
+                    "CONT" => {
+                        if let Err(e) = continue_program(&mut mem, &mut executor, &mut evaluator) {
+                            // Only print error if it's not a StopBreak
+                            if !matches!(e, BasicError::StopBreak(_, _)) {
+                                eprintln!("ERROR: {}", e);
+                            }
                         }
                         continue;
                     }
@@ -213,6 +231,10 @@ fn run_program(mem: &mut MemoryManager, executor: &mut StatementExecutor, evalua
                     // Continue to next line
                     current_line_idx += 1;
                 }
+                Err(BasicError::EndProgram) => {
+                    // END statement - normal program termination
+                    break;
+                }
                 Err(BasicError::GotoJump(jump_line)) => {
                     // Jump to different line
                     if let Some(jump_idx) = execution_order.iter().position(|&x| x == jump_line) {
@@ -249,6 +271,10 @@ fn run_program(mem: &mut MemoryManager, executor: &mut StatementExecutor, evalua
                                     current_line_idx += 1;
                                     break; // Exit the inner loop, will continue with outer while loop
                                 }
+                                Err(BasicError::EndProgram) => {
+                                    // END statement
+                                    break;
+                                }
                                 Err(BasicError::GotoJumpWithStatement(j, s)) => {
                                     // Another statement-level jump - continue the loop
                                     current_jump_line = j;
@@ -279,6 +305,10 @@ fn run_program(mem: &mut MemoryManager, executor: &mut StatementExecutor, evalua
                                         eprintln!("RETURN LINE {} NOT FOUND", j);
                                     }
                                     break;
+                                }
+                                Err(BasicError::StopBreak(break_line, _)) => {
+                                    println!("BREAK IN {}", break_line);
+                                    return Err(BasicError::StopBreak(break_line, 0));
                                 }
                                 Err(e) => {
                                     eprintln!("ERROR ON LINE {}: {}", current_jump_line, e);
@@ -314,6 +344,233 @@ fn run_program(mem: &mut MemoryManager, executor: &mut StatementExecutor, evalua
                     println!("OUT OF DATA");
                     current_line_idx += 1;
                 }
+                Err(BasicError::StopBreak(break_line, _)) => {
+                    // STOP command - pause execution
+                    println!("BREAK IN {}", break_line);
+                    return Err(BasicError::StopBreak(break_line, 0));
+                }
+                Err(e) => {
+                    eprintln!("ERROR ON LINE {}: {}", line_number, e);
+                    break;
+                }
+            }
+        } else {
+            current_line_idx += 1;
+        }
+    }
+
+    Ok(())
+}
+
+fn continue_program(mem: &mut MemoryManager, executor: &mut StatementExecutor, evaluator: &mut ExpressionEvaluator) -> BasicResult<()> {
+    // Check if there's a saved break point
+    let (break_line, break_statement) = match (mem.break_line, mem.break_statement) {
+        (Some(line), Some(stmt)) => (line, stmt),
+        _ => {
+            println!("CAN'T CONTINUE");
+            return Err(BasicError::CantContinue);
+        }
+    };
+
+    // Clear the break point
+    mem.break_line = None;
+    mem.break_statement = None;
+
+    // Get program lines in order
+    let execution_order = mem.get_execution_order();
+
+    // Find the break line in execution order
+    let mut current_line_idx = if let Some(idx) = execution_order.iter().position(|&x| x == break_line) {
+        idx
+    } else {
+        println!("BREAK LINE {} NOT FOUND", break_line);
+        return Err(BasicError::LineNumberNotFound(break_line));
+    };
+
+    // Execute from the statement after the STOP (break_statement + 1)
+    mem.set_current_line(break_line);
+    let line_tokens = if let Some(program_line) = mem.get_line(break_line) {
+        program_line.tokens.clone()
+    } else {
+        return Err(BasicError::LineNumberNotFound(break_line));
+    };
+
+    let tokens = &line_tokens[1..]; // Skip LineNumber token
+
+    // Execute remaining statements on the break line, starting after STOP
+    match executor.execute_statement_from(tokens, mem, evaluator, break_statement + 1) {
+        Ok(_) => {
+            // Finished the break line, move to next line
+            current_line_idx += 1;
+        }
+        Err(BasicError::EndProgram) => {
+            // END statement after STOP
+            return Ok(());
+        }
+        Err(BasicError::GotoJump(j)) => {
+            if let Some(idx) = execution_order.iter().position(|&x| x == j) {
+                current_line_idx = idx;
+            } else {
+                eprintln!("LINE {} NOT FOUND", j);
+                return Err(BasicError::LineNumberNotFound(j));
+            }
+        }
+        Err(BasicError::GosubJump(j)) => {
+            if let Some(idx) = execution_order.iter().position(|&x| x == j) {
+                current_line_idx = idx;
+            } else {
+                eprintln!("LINE {} NOT FOUND", j);
+                return Err(BasicError::LineNumberNotFound(j));
+            }
+        }
+        Err(BasicError::ReturnJump(j)) => {
+            if let Some(idx) = execution_order.iter().position(|&x| x == j) {
+                current_line_idx = idx + 1;
+            } else {
+                eprintln!("RETURN LINE {} NOT FOUND", j);
+                return Err(BasicError::LineNumberNotFound(j));
+            }
+        }
+        Err(BasicError::StopBreak(break_line, _)) => {
+            println!("BREAK IN {}", break_line);
+            return Err(BasicError::StopBreak(break_line, 0));
+        }
+        Err(e) => {
+            eprintln!("ERROR ON LINE {}: {}", break_line, e);
+            return Err(e);
+        }
+    }
+
+    // Continue with the rest of the program using the same logic as run_program
+    while current_line_idx < execution_order.len() {
+        let line_number = execution_order[current_line_idx];
+        mem.set_current_line(line_number);
+
+        let line_tokens = if let Some(program_line) = mem.get_line(line_number) {
+            program_line.tokens.clone()
+        } else {
+            eprintln!("LINE {} NOT FOUND", line_number);
+            break;
+        };
+
+        let tokens = &line_tokens[1..];
+
+        if !tokens.is_empty() {
+            if matches!(tokens[0], Token::Data) {
+                current_line_idx += 1;
+                continue;
+            }
+
+            match executor.execute_statement(tokens, mem, evaluator) {
+                Ok(_) => {
+                    current_line_idx += 1;
+                }
+                Err(BasicError::EndProgram) => {
+                    // END statement - stop execution
+                    break;
+                }
+                Err(BasicError::GotoJump(jump_line)) => {
+                    if let Some(jump_idx) = execution_order.iter().position(|&x| x == jump_line) {
+                        current_line_idx = jump_idx;
+                    } else {
+                        eprintln!("LINE {} NOT FOUND", jump_line);
+                        break;
+                    }
+                }
+                Err(BasicError::GotoJumpWithStatement(jump_line, statement_idx)) => {
+                    let mut current_jump_line = jump_line;
+                    let mut current_statement_idx = statement_idx;
+                    
+                    loop {
+                        if let Some(jump_idx) = execution_order.iter().position(|&x| x == current_jump_line) {
+                            current_line_idx = jump_idx;
+                            mem.set_current_line(current_jump_line);
+                            
+                            let jump_line_tokens = if let Some(program_line) = mem.get_line(current_jump_line) {
+                                program_line.tokens.clone()
+                            } else {
+                                eprintln!("LINE {} NOT FOUND", current_jump_line);
+                                break;
+                            };
+                            let jump_tokens = &jump_line_tokens[1..];
+                            
+                            match executor.execute_statement_from(jump_tokens, mem, evaluator, current_statement_idx) {
+                                Ok(_) => {
+                                    current_line_idx += 1;
+                                    break;
+                                }
+                                Err(BasicError::EndProgram) => {
+                                    // END statement
+                                    break;
+                                }
+                                Err(BasicError::GotoJumpWithStatement(j, s)) => {
+                                    current_jump_line = j;
+                                    current_statement_idx = s;
+                                    continue;
+                                }
+                                Err(BasicError::GotoJump(j)) => {
+                                    if let Some(idx) = execution_order.iter().position(|&x| x == j) {
+                                        current_line_idx = idx;
+                                    } else {
+                                        eprintln!("LINE {} NOT FOUND", j);
+                                    }
+                                    break;
+                                }
+                                Err(BasicError::GosubJump(j)) => {
+                                    if let Some(idx) = execution_order.iter().position(|&x| x == j) {
+                                        current_line_idx = idx;
+                                    } else {
+                                        eprintln!("LINE {} NOT FOUND", j);
+                                    }
+                                    break;
+                                }
+                                Err(BasicError::ReturnJump(j)) => {
+                                    if let Some(idx) = execution_order.iter().position(|&x| x == j) {
+                                        current_line_idx = idx + 1;
+                                    } else {
+                                        eprintln!("RETURN LINE {} NOT FOUND", j);
+                                    }
+                                    break;
+                                }
+                                Err(BasicError::StopBreak(break_line, _)) => {
+                                    println!("BREAK IN {}", break_line);
+                                    return Err(BasicError::StopBreak(break_line, 0));
+                                }
+                                Err(e) => {
+                                    eprintln!("ERROR ON LINE {}: {}", current_jump_line, e);
+                                    break;
+                                }
+                            }
+                        } else {
+                            eprintln!("LINE {} NOT FOUND", current_jump_line);
+                            break;
+                        }
+                    }
+                }
+                Err(BasicError::GosubJump(jump_line)) => {
+                    if let Some(jump_idx) = execution_order.iter().position(|&x| x == jump_line) {
+                        current_line_idx = jump_idx;
+                    } else {
+                        eprintln!("LINE {} NOT FOUND", jump_line);
+                        break;
+                    }
+                }
+                Err(BasicError::ReturnJump(return_line)) => {
+                    if let Some(jump_idx) = execution_order.iter().position(|&x| x == return_line) {
+                        current_line_idx = jump_idx + 1;
+                    } else {
+                        eprintln!("RETURN LINE {} NOT FOUND", return_line);
+                        break;
+                    }
+                }
+                Err(BasicError::OutOfData) => {
+                    println!("OUT OF DATA");
+                    current_line_idx += 1;
+                }
+                Err(BasicError::StopBreak(break_line, _)) => {
+                    println!("BREAK IN {}", break_line);
+                    return Err(BasicError::StopBreak(break_line, 0));
+                }
                 Err(e) => {
                     eprintln!("ERROR ON LINE {}: {}", line_number, e);
                     break;
@@ -341,6 +598,7 @@ fn print_help() {
     println!("  NEW   - Clear current program");
     println!("  LIST  - List program lines");
     println!("  RUN   - Execute the program");
+    println!("  CONT  - Continue after STOP");
     println!("  QUIT  - Exit the interpreter");
     println!();
     println!("Enter BASIC statements directly or with line numbers to store them.");

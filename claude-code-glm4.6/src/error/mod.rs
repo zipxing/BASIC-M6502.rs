@@ -129,6 +129,14 @@ pub enum BasicError {
     #[error("RETURN jump to line: {0}")]
     ReturnJump(u16),
 
+    /// STOP break - program paused, can be continued with CONT
+    #[error("BREAK at line: {0}")]
+    StopBreak(u16, usize),  // line number, statement index
+
+    /// END statement - normal program termination (not an error, just a control flow signal)
+    #[error("END")]
+    EndProgram,
+
     #[error("Generic error: {0}")]
     Generic(String),
 }

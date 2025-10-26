@@ -86,9 +86,10 @@ impl StatementExecutor {
                     current_idx += 1; // Continue to next statement
                 }
                 Ok(false) => {
-                    return Ok(statement_boundaries.len()); // End program
+                    // This should not happen anymore as END now throws an error
+                    return Ok(statement_boundaries.len());
                 }
-                Err(e) => return Err(e),
+                Err(e) => return Err(e), // Propagate all errors including EndProgram
             }
         }
 
@@ -134,12 +135,14 @@ impl StatementExecutor {
             Token::Dim => self.execute_dim(&tokens[1..], mem),
             Token::Load => self.execute_load(&tokens[1..], mem),
             Token::Save => self.execute_save(&tokens[1..], mem),
-            Token::End => Ok(false), // End program execution
+            Token::End => Err(BasicError::EndProgram), // End program execution
             Token::Stop => {
-                // STOP pauses execution - in interactive mode user could CONT
-                // For now, just end execution like END
-                println!("BREAK");
-                Ok(false)
+                // STOP pauses execution - can be continued with CONT
+                let current_line = mem.current_line.unwrap_or(0);
+                // Save break point for CONT
+                mem.break_line = Some(current_line);
+                mem.break_statement = Some(statement_idx);
+                Err(BasicError::StopBreak(current_line, statement_idx))
             }
             Token::On => self.execute_on(&tokens[1..], mem, evaluator),
             Token::Rem => Ok(true), // Remark - do nothing
