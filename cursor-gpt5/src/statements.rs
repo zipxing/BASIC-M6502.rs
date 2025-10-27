@@ -117,6 +117,16 @@ fn exec_print(vm: &mut Vm, cur: &mut Cursor) -> Result<()> {
                 }
             }
             io::stdout().flush().ok();
+            
+            // Check for interrupts after each print (for responsive Ctrl-C)
+            if let Some(flag) = &vm.interrupt_flag {
+                if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                    // Don't clear flag here, let runtime handle it
+                    vm.halted = true;
+                    return Ok(());
+                }
+            }
+            
             first = false;
             consumed = true;
         } else {

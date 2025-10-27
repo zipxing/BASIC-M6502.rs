@@ -13,7 +13,9 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use rustyline::{Editor, error::ReadlineError, completion::{Completer, Pair}, Context, Helper};
+use signal_hook::consts::SIGINT;
+use signal_hook::flag as signal_flag;
+use rustyline::{Editor, error::ReadlineError, completion::{Completer, Pair}, Context, Helper, Config};
 use rustyline::validate::{Validator, ValidationResult, ValidationContext};
 use rustyline::highlight::{Highlighter, CmdKind};
 use rustyline::hint::Hinter;
@@ -29,20 +31,16 @@ fn main() -> Result<()> {
     // switch off debug mode
     vm.debug = false;
 
-    // Ctrl-C handling: convert to STOP/CONT semantics in run loop
+    // Ctrl-C handling - flag will be set by signal handler
     let interrupted = Arc::new(AtomicBool::new(false));
     vm.set_interrupt_flag(interrupted.clone());
-    {
-        let flag = interrupted.clone();
-        ctrlc::set_handler(move || {
-            flag.store(true, Ordering::SeqCst);
-        })?;
-    }
 
     // Check if running in interactive mode (terminal) or batch mode (pipe/file)
     if std::io::stdin().is_terminal() {
         run_interactive_mode(&mut vm, interrupted)?;
     } else {
+        // Register SIGINT handler for batch mode
+        signal_flag::register(SIGINT, interrupted.clone())?;
         run_batch_mode(&mut vm)?;
     }
 
@@ -51,10 +49,18 @@ fn main() -> Result<()> {
 
 /// Interactive mode with rustyline (line editing, history, completion)
 fn run_interactive_mode(vm: &mut runtime::Vm, interrupted: Arc<AtomicBool>) -> Result<()> {
-    let mut rl = Editor::<BasicHelper, _>::new()?;
+    // Configure rustyline
+    let config = Config::builder()
+        .build();
+    
+    let mut rl = Editor::<BasicHelper, _>::with_config(config)?;
     
     // Set up helper with command completion
     rl.set_helper(Some(BasicHelper));
+    
+    // IMPORTANT: Register signal handler AFTER creating rustyline Editor
+    // This ensures our handler works even with rustyline's terminal modifications
+    signal_flag::register(SIGINT, interrupted.clone())?;
     
     // Load history from file
     let history_file = ".basic_history";
@@ -64,6 +70,7 @@ fn run_interactive_mode(vm: &mut runtime::Vm, interrupted: Arc<AtomicBool>) -> R
 
     println!("M6502 BASIC (Rust) — interactive REPL; type HELP for help");
     println!("Features: Command history (↑/↓), line editing, Tab completion");
+    println!("Note: Press Ctrl-C during RUN to interrupt program execution");
 
     loop {
         // Check for Ctrl-C during program execution

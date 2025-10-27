@@ -8,7 +8,7 @@ thiserror = "2.0.17"
 lazy_static = "1"
 regex = "1"
 anyhow = "1"
-ctrlc = "3"
+signal-hook = "0.3"
 rustyline = "17.0.1"
 
 [profile.dev]

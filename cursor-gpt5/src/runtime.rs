@@ -110,7 +110,15 @@ impl Vm {
                 }
                 if self.halted { break; }
                 // Also allow breaking mid-line if interrupt was raised
-                if let Some(flag) = &self.interrupt_flag { if flag.load(Ordering::SeqCst) { break; } }
+                if let Some(flag) = &self.interrupt_flag {
+                    if flag.swap(false, Ordering::SeqCst) {
+                        self.log_debug(format!("[RUN] Ctrl-C mid-line at {}", ln));
+                        eprintln!("?BREAK IN {}", ln);
+                        if let Some(nl) = self.next_line_after(ln) { self.jump_to = Some(nl); }
+                        self.halted = true;
+                        break;
+                    }
+                }
                 if self.jump_to.is_some() { break; }
                 si += 1;
             }
