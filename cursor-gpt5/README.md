@@ -211,18 +211,74 @@ A modern Rust recreation of Microsoft 6502 BASIC (8K v1.1) semantics and behavio
     RUN
     ```
 
+- v1.1.0
+  - **Enhanced Interactive Mode** with rustyline:
+    - Command history navigation (↑/↓ arrows)
+    - Persistent history saved to `.basic_history`
+    - Line editing with cursor movement (←/→, Ctrl-A/E, etc.)
+    - Tab completion for BASIC keywords and functions
+    - Better Ctrl-C handling (doesn't exit at READY prompt)
+  - **Automatic Mode Detection**:
+    - Interactive mode (terminal): Full rustyline features
+    - Batch mode (pipe/redirect): Simple stdin for compatibility
+  - Improved user experience for interactive BASIC programming
+  - See `INTERACTIVE_DEMO.md` for detailed feature guide
+
 ## Build & Run
+
+### Interactive Mode (with rustyline features)
 ```bash
-cd BASIC-M6502.rs
+cd cursor-gpt5
 cargo run
 ```
 
-Examples:
+You'll get full line editing, history, and tab completion:
 ```text
-PRINT 1+2*3
-LET A=10
-A=20
-PRINT "HELLO"+123
+M6502 BASIC (Rust) — interactive REPL; type HELP for help
+Features: Command history (↑/↓), line editing, Tab completion
+READY. PRINT 1+2*3
+7
+READY. 10 PRINT "HELLO"
+READY. [Press ↑ to recall]
+READY. 10 PRINT "WORLD"
+READY. PR[Press Tab]
+PRINT  PRINT  [completions shown]
+```
+
+### Batch Mode (for scripts and pipes)
+```bash
+# Run a BASIC program file
+cargo run < program.bas
+
+# Or use pipe
+echo "PRINT 123" | cargo run
+
+# Or redirect
+cat << EOF | cargo run
+10 PRINT "HELLO"
+20 PRINT "WORLD"
+RUN
+EOF
+```
+
+### Examples
+Interactive session:
+```text
+READY. PRINT 1+2*3
+7
+READY. LET A=10
+READY. A=20
+READY. PRINT A
+20
+READY. 10 FOR I=1 TO 3
+READY. 20 PRINT I
+READY. 30 NEXT I
+READY. RUN
+1
+2
+3
+READY. HELP
+[Shows comprehensive help]
 ```
 
 ## Architecture

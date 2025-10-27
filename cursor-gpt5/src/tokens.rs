@@ -58,6 +58,7 @@ pub fn lookup_keyword_upper(s: &str) -> Option<TokenKind> {
         "LET" => Some(Let),
         "GOTO" => Some(Goto),
         "RUN" => Some(Run),
+        "LIST" => Some(List),
         "NEW" => Some(New),
         "CLEAR" => Some(Clear),
         "SAVE" => Some(Save),

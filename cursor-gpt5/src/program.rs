@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 /// Program line structure, conceptually like [line_no][text]\0.
 #[derive(Debug, Clone)]
 pub struct ProgramLine {
+    #[allow(dead_code)]
     pub line_no: u16,
     pub tokens: Vec<Tok>,
 }

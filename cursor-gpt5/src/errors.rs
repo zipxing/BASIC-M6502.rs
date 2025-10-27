@@ -23,5 +23,3 @@ pub enum BasicError {
     #[error("IO ERROR")]
     Io,
 }
-
-pub type Result<T> = std::result::Result<T, BasicError>;
