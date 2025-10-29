@@ -115,7 +115,7 @@
 - **THEN** 均作为有效行号识别
 
 ### Requirement: 空格和分隔符处理
-系统 SHALL 正确处理空格、制表符作为分隔符，逗号和分号作为语句分隔符。
+系统 SHALL 正确处理空格、制表符作为分隔符，逗号和分号作为输出分隔符，冒号作为语句分隔符。
 
 #### Scenario: 空格分隔
 - **WHEN** 输入 "PRINT A"
@@ -129,9 +129,17 @@
 - **WHEN** 输入 "PRINT A,B"
 - **THEN** 返回 Token::Print, Token::Identifier("A"), Token::Comma, Token::Identifier("B")
 
-#### Scenario: 分号（行内分隔）
+#### Scenario: 分号（PRINT 紧密连接）
+- **WHEN** 输入 "PRINT A;B"
+- **THEN** 返回 Token::Print, Token::Identifier("A"), Token::Semicolon, Token::Identifier("B")
+
+#### Scenario: 冒号（语句分隔符）
 - **WHEN** 输入 "A=1: B=2"
-- **THEN** 冒号作为语句分隔符
+- **THEN** 返回 Token::Identifier("A"), Token::Equal, Token::Number(1), Token::Colon, Token::Identifier("B"), Token::Equal, Token::Number(2)
+
+#### Scenario: 复杂语句分隔
+- **WHEN** 输入 "FOR I=1 TO 10: PRINT I: NEXT I"
+- **THEN** 冒号正确分隔三个语句
 
 ### Requirement: 注释处理
 系统 SHALL 识别 REM 语句，REM 之后到行尾的所有内容作为注释忽略。

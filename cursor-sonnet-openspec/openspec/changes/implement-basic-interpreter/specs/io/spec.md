@@ -160,13 +160,29 @@
 - **THEN** 显示 "?SYNTAX ERROR"
 
 ### Requirement: 输入中断
-系统 SHALL 支持用户中断输入和执行。
+系统 SHALL 支持用户中断输入和执行，并保存执行状态以便恢复。
 
-#### Scenario: Ctrl+C 中断
-- **WHEN** 程序运行或等待输入时按 Ctrl+C
+#### Scenario: Ctrl+C 中断程序执行
+- **WHEN** 程序运行时按 Ctrl+C
 - **THEN** 中断执行，返回直接模式
 
-#### Scenario: 中断消息
+#### Scenario: Ctrl+C 中断输入等待
+- **WHEN** 等待 INPUT 输入时按 Ctrl+C
+- **THEN** 中断输入，返回直接模式
+
+#### Scenario: 中断消息显示
 - **WHEN** Ctrl+C 中断
-- **THEN** 显示 "?BREAK IN line"
+- **THEN** 显示 "?BREAK IN line XXX"（显示当前行号）
+
+#### Scenario: 保存中断状态
+- **WHEN** Ctrl+C 中断发生
+- **THEN** 保存当前执行行号和语句位置
+
+#### Scenario: CONT 从中断点恢复
+- **WHEN** Ctrl+C 中断后执行 CONT
+- **THEN** 从中断点继续执行程序
+
+#### Scenario: 中断后程序不变
+- **WHEN** Ctrl+C 中断后
+- **THEN** 程序和变量状态保持不变，可用 LIST 查看
 

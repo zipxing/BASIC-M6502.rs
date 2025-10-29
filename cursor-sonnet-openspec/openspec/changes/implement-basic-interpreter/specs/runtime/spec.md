@@ -151,23 +151,35 @@
 - **THEN** 无输出或显示 "EMPTY"
 
 ### Requirement: STOP 和 CONT
-系统 SHALL 实现 STOP 命令暂停执行，CONT 命令继续执行。
+系统 SHALL 实现 STOP 命令暂停执行，CONT 命令继续执行，同时支持 Ctrl+C 中断后的恢复。
 
 #### Scenario: STOP 暂停
 - **WHEN** 执行 STOP
 - **THEN** 程序暂停，显示 "BREAK IN line"
 
-#### Scenario: CONT 继续
+#### Scenario: CONT 从 STOP 继续
 - **WHEN** STOP 后执行 CONT
 - **THEN** 从 STOP 的下一条语句继续
 
+#### Scenario: Ctrl+C 中断暂停
+- **WHEN** 程序运行时按 Ctrl+C
+- **THEN** 程序中断，显示 "?BREAK IN line XXX"
+
+#### Scenario: CONT 从 Ctrl+C 中断点继续
+- **WHEN** Ctrl+C 中断后执行 CONT
+- **THEN** 从中断点（当前语句）继续执行
+
 #### Scenario: 未暂停时 CONT
-- **WHEN** 没有 STOP 就执行 CONT
+- **WHEN** 没有 STOP 或中断就执行 CONT
 - **THEN** 返回 RuntimeError::CantContinue
 
 #### Scenario: 程序修改后 CONT
-- **WHEN** STOP 后修改程序再 CONT
+- **WHEN** STOP/中断后修改程序再 CONT
 - **THEN** 返回错误（无法继续）
+
+#### Scenario: 中断状态保存
+- **WHEN** STOP 或 Ctrl+C 中断
+- **THEN** 保存当前行号、语句位置和所有变量状态
 
 ### Requirement: RUN 命令
 系统 SHALL 实现 RUN 命令，清空变量后执行程序。

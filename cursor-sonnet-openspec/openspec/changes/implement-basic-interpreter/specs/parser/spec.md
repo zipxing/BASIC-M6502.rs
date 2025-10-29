@@ -210,11 +210,31 @@
 - **THEN** 解析为清空变量
 
 ### Requirement: 语句分隔符
-系统 SHALL 支持冒号分隔一行中的多条语句。
+系统 SHALL 支持冒号分隔一行中的多条语句，包括复杂的控制流语句。
 
 #### Scenario: 单行多语句
 - **WHEN** 输入 "10 A=1: B=2: PRINT A+B"
 - **THEN** 解析为三条语句
+
+#### Scenario: 单行 FOR 循环
+- **WHEN** 输入 "10 FOR I=1 TO 10: PRINT I: NEXT I"
+- **THEN** 解析为完整的 FOR...NEXT 循环结构
+
+#### Scenario: 单行嵌套 FOR 循环
+- **WHEN** 输入 "10 FOR I=1 TO 3: FOR J=1 TO 3: PRINT I*J: NEXT J: NEXT I"
+- **THEN** 正确解析嵌套循环
+
+#### Scenario: 单行 IF...THEN 语句
+- **WHEN** 输入 "10 IF A>10 THEN A=0: PRINT A"
+- **THEN** THEN 后的多条语句被正确解析
+
+#### Scenario: 单行 GOSUB 和计算
+- **WHEN** 输入 "10 A=5: GOSUB 100: PRINT A"
+- **THEN** 三条语句按顺序执行
+
+#### Scenario: 复杂单行语句
+- **WHEN** 输入 "10 INPUT A: IF A>0 THEN B=A*2: PRINT B: GOTO 20"
+- **THEN** 所有语句正确解析和执行
 
 ### Requirement: 错误处理
 系统 SHALL 对语法错误给出清晰的错误位置和消息。

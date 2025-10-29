@@ -260,6 +260,51 @@ src/
 └── memory.rs         # 内存管理辅助 (~200 行)
 ```
 
+### 11. 单行多语句解析
+
+**决策**: 支持冒号分隔的单行多语句，包括完整的 FOR...NEXT 循环
+
+**理由**:
+- 这是原 BASIC 6502 的核心特性
+- 极大提高代码紧凑性和可读性
+- 符合用户对经典 BASIC 的使用习惯
+- 允许在一行内完成简单循环
+
+**实现策略**:
+```rust
+// Tokenizer: 识别冒号为语句分隔符
+Token::Colon  // 语句分隔符
+
+// Parser: 按冒号分割一行为多条语句
+fn parse_line(tokens: &[Token]) -> Vec<Statement> {
+    let mut statements = vec![];
+    let parts = split_by_colon(tokens);
+    for part in parts {
+        statements.push(parse_statement(part));
+    }
+    statements
+}
+
+// 特殊处理 FOR 循环
+// FOR I=1 TO 10: PRINT I: NEXT I
+// 需要正确匹配 FOR 和 NEXT，即使在同一行
+```
+
+**关键场景**:
+- 简单多语句：`A=1: B=2: PRINT A+B`
+- 单行 FOR 循环：`FOR I=1 TO 10: PRINT I: NEXT I`
+- 嵌套 FOR 循环：`FOR I=1 TO 3: FOR J=1 TO 3: PRINT I*J: NEXT J: NEXT I`
+- 条件后多语句：`IF A>10 THEN A=0: PRINT A: GOTO 20`
+
+**挑战**:
+- 正确匹配 FOR 和 NEXT（需要栈来追踪）
+- IF...THEN 后的多条语句处理
+- 保持行号追踪和错误报告的准确性
+
+**替代方案**:
+- 禁止单行多语句：违背 BASIC 传统，用户体验差
+- 仅支持简单语句，禁止 FOR 循环：限制过多
+
 ## Risks / Trade-offs
 
 ### 风险 1: 语义差异
@@ -338,13 +383,13 @@ N/A - 这是全新项目
    - 答：优先中文，可配置
 
 3. **是否实现 LOAD/SAVE？**
-   - 答：基础版本不实现，作为可选功能
+   - 答：基础版本不实现，作为可选功能下一个阶段实现
 
 4. **是否支持多平台（Windows, Linux, macOS）？**
    - 答：是，Rust 天然跨平台
 
 5. **如何处理无限循环？**
-   - 答：提供 Ctrl+C 中断支持
+   - 答：提供 Ctrl+C 中断支持, cont之后要求可以在断点继续执行
 
 ## References
 
