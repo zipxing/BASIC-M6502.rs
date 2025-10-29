@@ -1,0 +1,25 @@
+[package]
+name = "basic_m6502"
+version = "0.1.0"
+edition = "2021"
+authors = ["BASIC M6502 Team"]
+description = "A Rust implementation of Microsoft BASIC 6502 interpreter"
+
+[dependencies]
+# 行编辑库
+rustyline = "14.0"
+
+[dev-dependencies]
+# 测试相关依赖可以在这里添加
+
+[[bin]]
+name = "basic"
+path = "src/main.rs"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+lto = true
+
