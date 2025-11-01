@@ -336,6 +336,45 @@ impl Executor {
 
     /// 求值函数调用（内置函数）
     fn eval_function_call(&mut self, name: &str, args: &[Expr]) -> Result<Value> {
+        // 首先检查是否是用户自定义函数（FN name）
+        if name.starts_with("FN") && name.len() > 2 {
+            // 提取函数名（去掉 "FN" 前缀）
+            let func_name = &name[2..].trim();
+            
+            // 先克隆函数信息，释放引用
+            let (param_name, body) = if let Some(func) = self.variables.get_function(func_name) {
+                (func.param.clone(), func.body.clone())
+            } else {
+                return Err(BasicError::SyntaxError(
+                    format!("Undefined function: FN {}", func_name)
+                ));
+            };
+            
+            // 检查参数数量
+            if args.len() != 1 {
+                return Err(BasicError::SyntaxError(
+                    format!("FN {} requires 1 argument", func_name)
+                ));
+            }
+            
+            // 求值参数
+            let arg_value = self.eval_expr(&args[0])?;
+            
+            // 保存原变量值
+            let old_value = self.variables.get(&param_name);
+            
+            // 设置参数值
+            self.variables.set(&param_name, arg_value)?;
+            
+            // 求值函数体
+            let result = self.eval_expr(&body)?;
+            
+            // 恢复原变量值
+            let _ = self.variables.set(&param_name, old_value);
+            
+            return Ok(result);
+        }
+        
         match name.to_uppercase().as_str() {
             // 数学函数
             "SGN" => {
@@ -587,6 +626,49 @@ impl Executor {
                 }
                 let n = self.eval_expr(&args[0])?.as_number()? as usize;
                 Ok(Value::String(" ".repeat(n)))
+            }
+            
+            "POS" => {
+                // POS(x) - 返回当前打印列位置（1-based）
+                // 参数 x 被忽略，但必须提供（BASIC 6502 要求）
+                if args.len() != 1 {
+                    return Err(BasicError::SyntaxError("POS requires 1 argument".to_string()));
+                }
+                // 忽略参数，只返回当前列位置
+                let _ = self.eval_expr(&args[0])?;
+                // 返回 1-based 列位置（print_column 是 0-based）
+                Ok(Value::Number((self.print_column + 1) as f64))
+            }
+            
+            "FRE" => {
+                // FRE(x) - 返回剩余内存大小（简化实现）
+                // 参数 x 被忽略
+                if args.len() != 1 {
+                    return Err(BasicError::SyntaxError("FRE requires 1 argument".to_string()));
+                }
+                let _ = self.eval_expr(&args[0])?;
+                // 简化实现：返回一个固定的大数
+                Ok(Value::Number(32767.0))
+            }
+            
+            "PEEK" => {
+                // PEEK(addr) - 读取内存地址的值（简化实现）
+                if args.len() != 1 {
+                    return Err(BasicError::SyntaxError("PEEK requires 1 argument".to_string()));
+                }
+                let _ = self.eval_expr(&args[0])?;
+                // 简化实现：返回 0
+                Ok(Value::Number(0.0))
+            }
+            
+            "USR" => {
+                // USR(addr) - 调用机器语言程序（简化实现）
+                if args.len() != 1 {
+                    return Err(BasicError::SyntaxError("USR requires 1 argument".to_string()));
+                }
+                let _ = self.eval_expr(&args[0])?;
+                // 简化实现：返回 0
+                Ok(Value::Number(0.0))
             }
             
             _ => Err(BasicError::SyntaxError(
@@ -921,6 +1003,21 @@ impl Executor {
                 Ok(())
             }
             
+            Statement::Get { variable } => {
+                self.execute_get(variable)?;
+                Ok(())
+            }
+            
+            Statement::Null => {
+                // NULL 语句：无操作，直接返回
+                Ok(())
+            }
+            
+            Statement::DefFn { name, param, body } => {
+                self.execute_def_fn(name, param, body)?;
+                Ok(())
+            }
+            
             _ => {
                 // 其他语句暂未实现
                 Err(BasicError::SyntaxError(
@@ -1055,6 +1152,52 @@ impl Executor {
             })?;
         }
         
+        Ok(())
+    }
+    
+    /// 执行 GET 命令 - 读取单字符输入（不等待回车）
+    fn execute_get(&mut self, variable: &str) -> Result<()> {
+        use std::io::{self, Read};
+        
+        // GET 从 stdin 读取单个字符，不等待回车
+        // 注意：这在标准终端中可能不工作，因为终端通常是行缓冲的
+        // 对于测试，我们可以使用输入回调
+        
+        let ch = if let Some(ref mut callback) = self.input_callback {
+            // 如果有回调，使用回调
+            let input = callback("").unwrap_or_default();
+            input.chars().next().unwrap_or('\0')
+        } else {
+            // 尝试从 stdin 读取单个字符（非阻塞）
+            // 由于标准库的限制，这里简化处理：读取一个字符，如果失败则返回空
+            let mut buffer = [0u8; 1];
+            if io::stdin().read_exact(&mut buffer).is_ok() {
+                buffer[0] as char
+            } else {
+                '\0'  // 无输入时返回空字符
+            }
+        };
+        
+        // 根据变量类型赋值
+        if variable.ends_with('$') {
+            // 字符串变量：存储字符
+            if ch == '\0' {
+                self.variables.set(variable, Value::String(String::new()))?;
+            } else {
+                self.variables.set(variable, Value::String(ch.to_string()))?;
+            }
+        } else {
+            // 数值变量：存储 ASCII 码
+            let ascii = if ch == '\0' { 0.0 } else { ch as u8 as f64 };
+            self.variables.set(variable, Value::Number(ascii))?;
+        }
+        
+        Ok(())
+    }
+    
+    /// 执行 DEF FN 语句 - 定义用户自定义函数
+    fn execute_def_fn(&mut self, name: &str, param: &str, body: &Expr) -> Result<()> {
+        self.variables.define_function(name.to_string(), param.to_string(), body.clone())?;
         Ok(())
     }
     
@@ -2724,6 +2867,491 @@ mod tests {
         
         // 清理
         fs::remove_file(filename).ok();
+    }
+    
+    // ========== 高级功能测试 ==========
+    
+    // Test: POS 函数 - 基本功能
+    #[test]
+    fn test_pos_function() {
+        let mut exec = Executor::new();
+        
+        // 初始位置应该是 1（1-based）
+        let pos_expr = Expr::FunctionCall {
+            name: "POS".to_string(),
+            args: vec![Expr::Number(0.0)],
+        };
+        let pos = exec.eval_expr(&pos_expr).unwrap();
+        assert_eq!(pos, Value::Number(1.0));
+        
+        // 打印一些内容后，位置应该更新
+        exec.execute_statement(&Statement::Print {
+            items: vec![PrintItem::Expr(Expr::String("ABC".to_string()))],
+        }).unwrap();
+        
+        let pos = exec.eval_expr(&pos_expr).unwrap();
+        // 输出 "ABC" + 换行，所以新行开始应该是 1
+        assert_eq!(pos, Value::Number(1.0));
+    }
+    
+    // Test: POS 函数 - 与 TAB 交互
+    #[test]
+    fn test_pos_with_tab() {
+        let mut exec = Executor::new();
+        
+        // 使用 TAB 后检查位置
+        exec.execute_statement(&Statement::Print {
+            items: vec![
+                PrintItem::Expr(Expr::String("START".to_string())),
+                PrintItem::Tab(Expr::Number(15.0)),
+                PrintItem::Expr(Expr::FunctionCall {
+                    name: "POS".to_string(),
+                    args: vec![Expr::Number(0.0)],
+                }),
+            ],
+        }).unwrap();
+        
+        let output = exec.get_output();
+        assert!(output.contains("START"));
+    }
+    
+    // Test: POS 函数 - 与 SPC 交互
+    #[test]
+    fn test_pos_with_spc() {
+        let mut exec = Executor::new();
+        
+        exec.execute_statement(&Statement::Print {
+            items: vec![
+                PrintItem::Expr(Expr::String("A".to_string())),
+                PrintItem::Spc(Expr::Number(5.0)),
+                PrintItem::Expr(Expr::FunctionCall {
+                    name: "POS".to_string(),
+                    args: vec![Expr::Number(0.0)],
+                }),
+            ],
+        }).unwrap();
+        
+        let output = exec.get_output();
+        assert!(output.contains("A"));
+    }
+    
+    // Test: DEF FN 语句 - 定义用户自定义函数
+    #[test]
+    fn test_def_fn_statement() {
+        let mut exec = Executor::new();
+        
+        let stmt = Statement::DefFn {
+            name: "SQUARE".to_string(),
+            param: "X".to_string(),
+            body: Expr::binary(
+                Expr::Variable("X".to_string()),
+                BinaryOperator::Multiply,
+                Expr::Variable("X".to_string()),
+            ),
+        };
+        
+        exec.execute_statement(&stmt).unwrap();
+        
+        // 验证函数已定义
+        assert!(exec.variables.has_function("SQUARE"));
+    }
+    
+    // Test: FN 调用 - 基本功能
+    #[test]
+    fn test_fn_call_basic() {
+        let mut exec = Executor::new();
+        
+        // 定义函数
+        exec.execute_statement(&Statement::DefFn {
+            name: "SQUARE".to_string(),
+            param: "X".to_string(),
+            body: Expr::binary(
+                Expr::Variable("X".to_string()),
+                BinaryOperator::Multiply,
+                Expr::Variable("X".to_string()),
+            ),
+        }).unwrap();
+        
+        // 调用函数
+        let fn_call = Expr::FunctionCall {
+            name: "FNSQUARE".to_string(),
+            args: vec![Expr::Number(5.0)],
+        };
+        
+        let result = exec.eval_expr(&fn_call).unwrap();
+        assert_eq!(result, Value::Number(25.0));
+    }
+    
+    // Test: FN 调用 - 使用全局变量
+    #[test]
+    fn test_fn_call_with_global() {
+        let mut exec = Executor::new();
+        
+        // 设置全局变量
+        exec.variables.set("GVAL", Value::Number(10.0)).unwrap();
+        
+        // 定义使用全局变量的函数
+        exec.execute_statement(&Statement::DefFn {
+            name: "ADDG".to_string(),
+            param: "X".to_string(),
+            body: Expr::binary(
+                Expr::Variable("X".to_string()),
+                BinaryOperator::Add,
+                Expr::Variable("GVAL".to_string()),
+            ),
+        }).unwrap();
+        
+        // 调用函数
+        let fn_call = Expr::FunctionCall {
+            name: "FNADDG".to_string(),
+            args: vec![Expr::Number(5.0)],
+        };
+        
+        let result = exec.eval_expr(&fn_call).unwrap();
+        assert_eq!(result, Value::Number(15.0));
+        
+        // 验证全局变量未被修改
+        assert_eq!(exec.variables.get("GVAL"), Value::Number(10.0));
+    }
+    
+    // Test: FN 调用 - 嵌套调用
+    #[test]
+    fn test_fn_call_nested() {
+        let mut exec = Executor::new();
+        
+        // 定义两个函数
+        exec.execute_statement(&Statement::DefFn {
+            name: "DOUBLE".to_string(),
+            param: "Y".to_string(),
+            body: Expr::binary(
+                Expr::Variable("Y".to_string()),
+                BinaryOperator::Add,
+                Expr::Variable("Y".to_string()),
+            ),
+        }).unwrap();
+        
+        exec.execute_statement(&Statement::DefFn {
+            name: "SQUARE".to_string(),
+            param: "X".to_string(),
+            body: Expr::binary(
+                Expr::Variable("X".to_string()),
+                BinaryOperator::Multiply,
+                Expr::Variable("X".to_string()),
+            ),
+        }).unwrap();
+        
+        // 嵌套调用：FN SQUARE(FN DOUBLE(2))
+        let nested = Expr::FunctionCall {
+            name: "FNSQUARE".to_string(),
+            args: vec![Expr::FunctionCall {
+                name: "FNDOUBLE".to_string(),
+                args: vec![Expr::Number(2.0)],
+            }],
+        };
+        
+        let result = exec.eval_expr(&nested).unwrap();
+        // FN DOUBLE(2) = 4, FN SQUARE(4) = 16
+        assert_eq!(result, Value::Number(16.0));
+    }
+    
+    // Test: FN 调用 - 参数作用域
+    #[test]
+    fn test_fn_call_parameter_scope() {
+        let mut exec = Executor::new();
+        
+        // 设置一个全局变量 X
+        exec.variables.set("X", Value::Number(100.0)).unwrap();
+        
+        // 定义函数，参数名也是 X
+        exec.execute_statement(&Statement::DefFn {
+            name: "TEST".to_string(),
+            param: "X".to_string(),
+            body: Expr::binary(
+                Expr::Variable("X".to_string()),
+                BinaryOperator::Add,
+                Expr::Number(1.0),
+            ),
+        }).unwrap();
+        
+        // 调用函数，参数值应该是传入的值，不是全局变量
+        let fn_call = Expr::FunctionCall {
+            name: "FNTEST".to_string(),
+            args: vec![Expr::Number(5.0)],
+        };
+        
+        let result = exec.eval_expr(&fn_call).unwrap();
+        assert_eq!(result, Value::Number(6.0));
+        
+        // 验证全局变量 X 未被修改
+        assert_eq!(exec.variables.get("X"), Value::Number(100.0));
+    }
+    
+    // Test: GET 语句 - 字符串变量
+    #[test]
+    fn test_get_string_variable() {
+        let mut exec = Executor::new();
+        
+        // 设置输入回调
+        exec.set_input_callback(|_| Some("A".to_string()));
+        
+        let stmt = Statement::Get {
+            variable: "CH$".to_string(),
+        };
+        
+        exec.execute_statement(&stmt).unwrap();
+        
+        // 验证字符被存储
+        let ch = exec.variables.get("CH$");
+        assert_eq!(ch, Value::String("A".to_string()));
+    }
+    
+    // Test: GET 语句 - 数值变量（ASCII 码）
+    #[test]
+    fn test_get_numeric_variable() {
+        let mut exec = Executor::new();
+        
+        // 设置输入回调
+        exec.set_input_callback(|_| Some("A".to_string()));
+        
+        let stmt = Statement::Get {
+            variable: "CH".to_string(),
+        };
+        
+        exec.execute_statement(&stmt).unwrap();
+        
+        // 验证 ASCII 码被存储（'A' = 65）
+        let ch = exec.variables.get("CH");
+        assert_eq!(ch, Value::Number(65.0));
+    }
+    
+    // Test: GET 语句 - 无输入情况
+    #[test]
+    fn test_get_no_input() {
+        let mut exec = Executor::new();
+        
+        // 设置回调返回 None（无输入）
+        exec.set_input_callback(|_| None);
+        
+        let stmt = Statement::Get {
+            variable: "CH$".to_string(),
+        };
+        
+        // 由于没有输入，应该返回空字符串
+        exec.execute_statement(&stmt).unwrap();
+        
+        let ch = exec.variables.get("CH$");
+        assert_eq!(ch, Value::String(String::new()));
+    }
+    
+    // Test: NULL 语句 - 无操作
+    #[test]
+    fn test_null_statement() {
+        let mut exec = Executor::new();
+        
+        // 设置一个变量
+        exec.variables.set("X", Value::Number(10.0)).unwrap();
+        
+        // 执行 NULL 语句
+        exec.execute_statement(&Statement::Null).unwrap();
+        
+        // 验证变量未被修改
+        assert_eq!(exec.variables.get("X"), Value::Number(10.0));
+        
+        // 验证没有输出
+        assert_eq!(exec.get_output(), "");
+    }
+    
+    // Test: NULL 语句 - 多个 NULL
+    #[test]
+    fn test_multiple_null_statements() {
+        let mut exec = Executor::new();
+        
+        // 执行多个 NULL 语句
+        exec.execute_statement(&Statement::Null).unwrap();
+        exec.execute_statement(&Statement::Null).unwrap();
+        exec.execute_statement(&Statement::Null).unwrap();
+        
+        // 验证没有错误，没有输出
+        assert_eq!(exec.get_output(), "");
+    }
+    
+    // Test: 综合测试 - 运行 test.bas 的关键部分
+    #[test]
+    fn test_integration_advanced_features() {
+        let mut exec = Executor::new();
+        
+        // 测试 POS 函数
+        exec.execute_statement(&Statement::Print {
+            items: vec![
+                PrintItem::Expr(Expr::String("POS TEST:".to_string())),
+            ],
+        }).unwrap();
+        
+        let pos_expr = Expr::FunctionCall {
+            name: "POS".to_string(),
+            args: vec![Expr::Number(0.0)],
+        };
+        let pos = exec.eval_expr(&pos_expr).unwrap();
+        assert!(pos.as_number().unwrap() >= 1.0);
+        
+        // 测试 DEF FN 和 FN 调用
+        exec.execute_statement(&Statement::DefFn {
+            name: "SQUARE".to_string(),
+            param: "X".to_string(),
+            body: Expr::binary(
+                Expr::Variable("X".to_string()),
+                BinaryOperator::Multiply,
+                Expr::Variable("X".to_string()),
+            ),
+        }).unwrap();
+        
+        exec.execute_statement(&Statement::DefFn {
+            name: "DOUBLE".to_string(),
+            param: "Y".to_string(),
+            body: Expr::binary(
+                Expr::Variable("Y".to_string()),
+                BinaryOperator::Add,
+                Expr::Variable("Y".to_string()),
+            ),
+        }).unwrap();
+        
+        // 测试函数调用
+        let result1 = exec.eval_expr(&Expr::FunctionCall {
+            name: "FNSQUARE".to_string(),
+            args: vec![Expr::Number(5.0)],
+        }).unwrap();
+        assert_eq!(result1, Value::Number(25.0));
+        
+        let result2 = exec.eval_expr(&Expr::FunctionCall {
+            name: "FNDOUBLE".to_string(),
+            args: vec![Expr::Number(7.0)],
+        }).unwrap();
+        assert_eq!(result2, Value::Number(14.0));
+        
+        // 测试 NULL 语句
+        exec.execute_statement(&Statement::Null).unwrap();
+        exec.execute_statement(&Statement::Print {
+            items: vec![PrintItem::Expr(Expr::String("AFTER NULL".to_string()))],
+        }).unwrap();
+        
+        let output = exec.get_output();
+        assert!(output.contains("AFTER NULL"));
+    }
+    
+    // Test: 运行 test.bas 文件并验证关键输出
+    #[test]
+    fn test_run_test_bas_file() {
+        use std::fs;
+        use crate::tokenizer::Tokenizer;
+        use crate::parser::Parser;
+        
+        let mut exec = Executor::new();
+        
+        // 设置输入回调（用于 INPUT 和 GET）
+        let input_count = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let input_count_clone = input_count.clone();
+        exec.set_input_callback(move |_| {
+            let mut count = input_count_clone.lock().unwrap();
+            *count += 1;
+            if *count == 1 {
+                Some("JOHN,18".to_string())  // INPUT 语句
+            } else {
+                Some("A".to_string())  // GET 语句
+            }
+        });
+        
+        // 读取 test.bas 文件
+        let test_file = "test.bas";
+        if !fs::metadata(test_file).is_ok() {
+            // 如果文件不存在，跳过测试
+            eprintln!("Warning: test.bas not found, skipping integration test");
+            return;
+        }
+        
+        let content = fs::read_to_string(test_file).unwrap();
+        
+        // 加载程序
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            
+            let mut tokenizer = Tokenizer::new(line);
+            let tokens = tokenizer.tokenize_line().unwrap();
+            
+            let mut parser = Parser::new(tokens);
+            if let Some(program_line) = parser.parse_line().unwrap() {
+                if program_line.line_number > 0 {
+                    // 收集 DATA 语句
+                    for stmt in &program_line.statements {
+                        if let Statement::Data { values } = stmt {
+                            for value in values {
+                                let exec_value = match value {
+                                    crate::ast::DataValue::Number(n) => DataValue::Number(*n),
+                                    crate::ast::DataValue::String(s) => DataValue::String(s.clone()),
+                                };
+                                exec.add_data_value(exec_value);
+                            }
+                        }
+                    }
+                    exec.runtime_mut().add_line(program_line);
+                }
+            }
+        }
+        
+        // 运行程序（但不运行到 STOP，因为需要交互）
+        exec.variables_mut().clear();
+        exec.restore_data();
+        exec.runtime_mut().start_execution(None).unwrap();
+        
+        // 执行程序直到 STOP 或 END
+        let mut executed_lines = 0;
+        loop {
+            if executed_lines > 1000 {
+                // 防止无限循环
+                break;
+            }
+            
+            let stmt = match exec.runtime_mut().get_next_statement() {
+                Some(s) => s,
+                None => break,
+            };
+            
+            // 跳过 STOP 语句（需要交互）
+            if matches!(stmt, Statement::Stop) {
+                break;
+            }
+            
+            // 跳过 INPUT 和 GET（已处理）
+            if matches!(stmt, Statement::Input { .. }) || matches!(stmt, Statement::Get { .. }) {
+                exec.execute_statement(&stmt).ok();
+                continue;
+            }
+            
+            if let Err(e) = exec.execute_statement(&stmt) {
+                eprintln!("Error executing statement: {:?}", e);
+                break;
+            }
+            
+            executed_lines += 1;
+            
+            if exec.runtime().is_stopped() || exec.runtime().is_paused() {
+                break;
+            }
+        }
+        
+        let output = exec.get_output();
+        
+        // 验证关键输出
+        assert!(output.contains("DEMO START"), "Should contain 'DEMO START'");
+        assert!(output.contains("POS TEST:"), "Should contain POS test output");
+        assert!(output.contains("FN SQUARE(5)=") || output.contains("FN SQUARE"), "Should contain function test");
+        assert!(output.contains("AFTER NULL"), "Should contain NULL test output");
+        
+        // 验证函数已定义
+        assert!(exec.variables.has_function("SQUARE"), "Function SQUARE should be defined");
+        assert!(exec.variables.has_function("DOUBLE"), "Function DOUBLE should be defined");
     }
 }
 

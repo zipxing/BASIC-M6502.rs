@@ -4,6 +4,18 @@
 
 use std::collections::HashMap;
 use crate::error::{BasicError, Result};
+use crate::ast::Expr;
+
+/// 用户自定义函数定义
+#[derive(Debug, Clone)]
+pub struct UserFunction {
+    /// 函数名
+    pub name: String,
+    /// 参数名
+    pub param: String,
+    /// 函数体（表达式）
+    pub body: Expr,
+}
 
 /// 变量值类型
 #[derive(Debug, Clone, PartialEq)]
@@ -142,6 +154,8 @@ pub struct Variables {
     simple: HashMap<String, Value>,
     /// 数组
     arrays: HashMap<String, Array>,
+    /// 用户自定义函数
+    functions: HashMap<String, UserFunction>,
 }
 
 impl Variables {
@@ -150,6 +164,7 @@ impl Variables {
         Variables {
             simple: HashMap::new(),
             arrays: HashMap::new(),
+            functions: HashMap::new(),
         }
     }
 
@@ -264,6 +279,7 @@ impl Variables {
     pub fn clear(&mut self) {
         self.simple.clear();
         self.arrays.clear();
+        self.functions.clear();
     }
 
     /// 获取所有变量名（用于调试）
@@ -276,6 +292,30 @@ impl Variables {
     /// 获取所有数组名（用于调试）
     pub fn list_arrays(&self) -> Vec<String> {
         self.arrays.keys().cloned().collect()
+    }
+    
+    /// 定义用户自定义函数
+    pub fn define_function(&mut self, name: String, param: String, body: Expr) -> Result<()> {
+        let key = Self::normalize_name(&name);
+        let func = UserFunction {
+            name: key.clone(),
+            param: Self::normalize_name(&param),
+            body,
+        };
+        self.functions.insert(key, func);
+        Ok(())
+    }
+    
+    /// 获取用户自定义函数
+    pub fn get_function(&self, name: &str) -> Option<&UserFunction> {
+        let key = Self::normalize_name(name);
+        self.functions.get(&key)
+    }
+    
+    /// 检查函数是否存在
+    pub fn has_function(&self, name: &str) -> bool {
+        let key = Self::normalize_name(name);
+        self.functions.contains_key(&key)
     }
 }
 

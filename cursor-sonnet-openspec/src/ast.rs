@@ -201,6 +201,9 @@ pub enum Statement {
         variable: String,
     },
     
+    // NULL 空语句
+    Null,
+    
     // LOAD 加载程序
     Load {
         filename: String,

@@ -17,11 +17,21 @@
 71 PRINT "TAB->"; TAB(20); "COL20", 123, 456
 72 PRINT 1,2,3;
 
-80 REM Arrays: numeric and string
-81 DIM A(10), N$(3)
-82 FOR I=1 TO 10: A(I)=I: NEXT I
-83 N$(1)="FOO": N$(2)="BAR": N$(3)="BAZ"
-84 PRINT "A(5)=", A(5), " N$(2)=", N$(2)
+73 REM POS function - cursor position tracking
+74 PRINT "POS TEST:";
+75 PRINT " COL="; POS(0);
+76 PRINT "A"; " COL="; POS(0);
+77 PRINT "BC"; " COL="; POS(0)
+78 PRINT "NEW LINE COL="; POS(0)
+79 REM POS with TAB and SPC
+80 PRINT "START"; TAB(10); "POS="; POS(0)
+81 PRINT "SPC(5)"; SPC(5); "POS="; POS(0)
+
+82 REM Arrays: numeric and string
+83 DIM A(10), N$(3)
+84 FOR I=1 TO 10: A(I)=I: NEXT I
+85 N$(1)="FOO": N$(2)="BAR": N$(3)="BAZ"
+86 PRINT "A(5)=", A(5), " N$(2)=", N$(2)
 
 90 REM IF/THEN (branch and inline)
 91 IF A(5)-5 THEN 200
@@ -47,16 +57,39 @@
 135 READ D
 136 PRINT "RESTORED:", D
 
-140 REM INPUT (enter e.g. JOHN,18)
-141 INPUT "NAME,AGE? "; N$, AGE
-142 PRINT "INPUT:", N$, AGE
+137 REM User-defined functions (DEF FN)
+138 DEF FN SQUARE(X) = X * X
+139 DEF FN DOUBLE(Y) = Y + Y
+140 PRINT "FN SQUARE(5)="; FN SQUARE(5)
+141 PRINT "FN DOUBLE(7)="; FN DOUBLE(7)
+142 PRINT "FN SQUARE(3)+FN DOUBLE(2)="; FN SQUARE(3) + FN DOUBLE(2)
+143 REM Function with global variables
+144 GVAL=10
+145 DEF FN ADDG(X) = X + GVAL
+146 PRINT "FN ADDG(5)="; FN ADDG(5)
+147 REM Function in expression
+148 PRINT "RESULT="; FN SQUARE(FN DOUBLE(2))
 
-150 REM STOP/CONT and END (run CONT after STOP to continue)
-151 PRINT "A": STOP
-152 REM After CONT, next line executes
-153 PRINT "B"
+149 REM INPUT (enter e.g. JOHN,18)
+150 INPUT "NAME,AGE? "; N$, AGE
+151 PRINT "INPUT:", N$, AGE
 
-160 END
+152 REM GET statement - single character input
+153 REM Note: GET reads single char without waiting for Enter
+154 REM GET CH$
+155 REM PRINT "GET CHAR: ["; CH$; "]"
+
+156 REM NULL statement - no operation
+157 NULL
+158 PRINT "AFTER NULL"
+159 NULL: NULL: PRINT "MULTIPLE NULL OK"
+
+160 REM STOP/CONT and END (run CONT after STOP to continue)
+161 PRINT "A": STOP
+162 REM After CONT, next line executes
+163 PRINT "B"
+
+164 END
 
 200 REM Branch target from IF
 201 PRINT "BRANCHED TO 200"

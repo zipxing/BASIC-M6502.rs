@@ -46,6 +46,7 @@ pub enum Token {
     Then,
     To,
     Step,
+    Fn,  // FN 用于用户自定义函数调用
     
     // 内置函数（22个）
     // 数学函数
@@ -148,6 +149,7 @@ impl Token {
             "THEN" => Some(Token::Then),
             "TO" => Some(Token::To),
             "STEP" => Some(Token::Step),
+            "FN" => Some(Token::Fn),
             
             // 数学函数
             "SGN" => Some(Token::Sgn),

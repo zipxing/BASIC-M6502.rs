@@ -147,6 +147,10 @@ impl Parser {
             Token::Poke => self.parse_poke(),
             Token::Wait => self.parse_wait(),
             Token::Get => self.parse_get(),
+            Token::Null => {
+                self.advance();
+                Ok(Statement::Null)
+            }
             Token::Load => self.parse_load(),
             Token::Save => self.parse_save(),
             // 隐式 LET（赋值语句没有 LET 关键字）
@@ -522,6 +526,9 @@ impl Parser {
     fn parse_def_fn(&mut self) -> Result<Statement> {
         self.expect(&Token::Def)?;
         
+        // DEF FN 语句格式：DEF FN name(param) = expr
+        self.expect(&Token::Fn)?;
+        
         let name = self.expect_identifier()?;
         
         self.expect(&Token::LeftParen)?;
@@ -790,6 +797,19 @@ impl Parser {
                 } else {
                     Ok(Expr::Variable(name))
                 }
+            }
+            // FN 用户自定义函数调用
+            Token::Fn => {
+                self.advance();
+                let func_name = self.expect_identifier()?;
+                self.expect(&Token::LeftParen)?;
+                let args = self.parse_expression_list()?;
+                self.expect(&Token::RightParen)?;
+                // 函数名格式为 "FNname"
+                Ok(Expr::FunctionCall {
+                    name: format!("FN{}", func_name),
+                    args,
+                })
             }
             // 内置函数
             _ if self.is_function_token(self.current()) => {
