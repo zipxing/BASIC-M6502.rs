@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// REPL 提示符
-const PROMPT: &str = "READY.";
+const PROMPT: &str = "BASIC.rs.";
 
 fn main() -> Result<()> {
     println!("Microsoft BASIC 6502 Interpreter (Rust Edition)");
@@ -90,7 +90,8 @@ fn main() -> Result<()> {
                 prompt_text = Some(PROMPT);
             }
             Err(ReadlineError::Eof) => {
-                // Ctrl+D
+                // Ctrl+D - 退出
+                println!("Bye.");
                 break;
             }
             Err(err) => {
