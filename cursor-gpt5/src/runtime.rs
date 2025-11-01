@@ -63,7 +63,8 @@ impl Vm {
                 if flag.swap(false, Ordering::SeqCst) {
                     self.log_debug(format!("[RUN] Ctrl-C at line {}", ln));
                     eprintln!("?BREAK IN {}", ln);
-                    if let Some(nl) = self.next_line_after(ln) { self.jump_to = Some(nl); }
+                    // Don't set jump_to here - let CONT resume from current position
+                    // Setting jump_to would break FOR/NEXT loops
                     self.halted = true;
                 }
             }
@@ -114,7 +115,7 @@ impl Vm {
                     if flag.swap(false, Ordering::SeqCst) {
                         self.log_debug(format!("[RUN] Ctrl-C mid-line at {}", ln));
                         eprintln!("?BREAK IN {}", ln);
-                        if let Some(nl) = self.next_line_after(ln) { self.jump_to = Some(nl); }
+                        // Don't set jump_to - preserve FOR/NEXT loop context
                         self.halted = true;
                         break;
                     }

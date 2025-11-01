@@ -1,0 +1,6 @@
+10 REM Long running loop test
+20 FOR I = 1 TO 1000000
+30 IF I MOD 10000 = 0 THEN PRINT I
+40 NEXT I
+50 PRINT "DONE"
+

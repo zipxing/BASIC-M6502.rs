@@ -3,10 +3,23 @@ use basic_m6502::{
 };
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+/// REPL 提示符
+const PROMPT: &str = "READY.";
 
 fn main() -> Result<()> {
     println!("Microsoft BASIC 6502 Interpreter (Rust Edition)");
     println!();
+
+    // 设置 Ctrl+C 处理器
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let interrupted_clone = interrupted.clone();
+    
+    ctrlc::set_handler(move || {
+        interrupted_clone.store(true, Ordering::SeqCst);
+    }).expect("Error setting Ctrl-C handler");
 
     // 创建执行器
     let mut executor = Executor::new();
@@ -21,11 +34,20 @@ fn main() -> Result<()> {
     let _ = rl.load_history(history_file);
 
     // REPL 主循环
-    let mut prompt = "Ready.\n";
+    // 提示符类型：None(无提示), Some(PROMPT)(命令执行后)
+    let mut prompt_text: Option<&str> = Some(PROMPT);
     
     loop {
-        // 读取一行（带提示符）
-        let readline = rl.readline(prompt);
+        // 使用println打印提示符（如果需要）
+        if let Some(text) = prompt_text {
+            println!("{}", text);
+        }
+        
+        // 清除中断标志（准备接收新命令）
+        interrupted.store(false, Ordering::SeqCst);
+        
+        // 读取一行（提示符设为空）
+        let readline = rl.readline("");
         
         match readline {
             Ok(line) => {
@@ -33,13 +55,13 @@ fn main() -> Result<()> {
                 rl.add_history_entry(line.as_str()).ok();
                 
                 // 处理输入行
-                match process_line(&mut executor, &line) {
+                match process_line(&mut executor, &line, &interrupted) {
                     Ok(should_print_ready) => {
                         // 执行成功后，根据返回值决定是否显示提示符
                         if should_print_ready {
-                            prompt = "Ready.\n";
+                            prompt_text = Some(PROMPT);
                         } else {
-                            prompt = "";
+                            prompt_text = None;
                         }
                     }
                     Err(e) => {
@@ -47,11 +69,11 @@ fn main() -> Result<()> {
                         match e {
                             BasicError::CantContinue => {
                                 // 正常退出信号，不输出错误
-                                prompt = "";
+                                prompt_text = None;
                             }
                             _ => {
                                 eprintln!("?{}", format_error(&e));
-                                prompt = "Ready.\n";
+                                prompt_text = Some(PROMPT);
                             }
                         }
                     }
@@ -65,7 +87,7 @@ fn main() -> Result<()> {
                     println!("^C");
                 }
                 executor.runtime_mut().interrupt();
-                prompt = "Ready.\n";
+                prompt_text = Some(PROMPT);
             }
             Err(ReadlineError::Eof) => {
                 // Ctrl+D
@@ -85,8 +107,8 @@ fn main() -> Result<()> {
 }
 
 /// 处理一行输入
-/// 返回值：Ok(bool) - true 表示应该打印 "Ready.", false 表示不打印
-fn process_line(executor: &mut Executor, line: &str) -> Result<bool> {
+/// 返回值：Ok(bool) - true 表示应该打印提示符, false 表示不打印
+fn process_line(executor: &mut Executor, line: &str, interrupted: &Arc<AtomicBool>) -> Result<bool> {
     let line = line.trim();
     
     // 空行
@@ -130,7 +152,7 @@ fn process_line(executor: &mut Executor, line: &str) -> Result<bool> {
                 Ok(true)
             }
             Statement::Run { line_number } => {
-                run_program(executor, *line_number)?;
+                run_program(executor, *line_number, interrupted)?;
                 Ok(true)
             }
             Statement::New => {
@@ -150,7 +172,7 @@ fn process_line(executor: &mut Executor, line: &str) -> Result<bool> {
                 Ok(true)
             }
             Statement::Cont => {
-                continue_program(executor)?;
+                continue_program(executor, interrupted)?;
                 Ok(true)
             }
             _ => {
@@ -184,12 +206,23 @@ fn list_program(executor: &Executor, start: Option<u16>, end: Option<u16>) {
 }
 
 /// 运行程序
-fn run_program(executor: &mut Executor, line_number: Option<u16>) -> Result<()> {
+fn run_program(executor: &mut Executor, line_number: Option<u16>, interrupted: &Arc<AtomicBool>) -> Result<()> {
     // 启动执行
     executor.runtime_mut().start_execution(line_number)?;
     
     // 执行循环
     loop {
+        // 检查中断标志
+        if interrupted.load(Ordering::SeqCst) {
+            // 中断程序
+            executor.runtime_mut().interrupt();
+            if let Some(line) = executor.runtime().get_current_line() {
+                println!("?BREAK IN {}", line);
+            }
+            interrupted.store(false, Ordering::SeqCst); // 清除标志
+            return Ok(());
+        }
+        
         let stmt = match executor.runtime_mut().get_next_statement() {
             Some(s) => s,
             None => break, // 程序结束
@@ -217,7 +250,7 @@ fn run_program(executor: &mut Executor, line_number: Option<u16>) -> Result<()> 
 }
 
 /// 继续执行程序
-fn continue_program(executor: &mut Executor) -> Result<()> {
+fn continue_program(executor: &mut Executor, interrupted: &Arc<AtomicBool>) -> Result<()> {
     if !executor.runtime().can_continue() {
         println!("?CAN'T CONTINUE");
         // 错误已经打印，返回 Ok 以便显示 Ready
@@ -226,7 +259,7 @@ fn continue_program(executor: &mut Executor) -> Result<()> {
     
     // 从暂停点恢复执行
     executor.runtime_mut().continue_execution()?;
-    run_program(executor, None)
+    run_program(executor, None, interrupted)
 }
 
 /// 格式化错误信息

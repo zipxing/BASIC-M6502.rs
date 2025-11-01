@@ -425,6 +425,34 @@ impl Executor {
                 Ok(Value::Number(n.exp()))
             }
             
+            "RND" => {
+                use rand::Rng;
+                
+                // RND 函数的 BASIC 6502 语义：
+                // RND(0) - 返回最近生成的随机数（简化为生成新的）
+                // RND(正数) - 返回 [0, 1) 的随机浮点数
+                // RND(负数) - 使用负数作为种子（暂不实现种子功能）
+                let arg = if args.is_empty() {
+                    1.0  // 无参数默认为 RND(1)
+                } else {
+                    self.eval_expr(&args[0])?.as_number()?
+                };
+                
+                let mut rng = rand::thread_rng();
+                
+                // 简化实现：所有情况都返回 [0, 1) 的随机数
+                // 如果需要随机整数，用户可以写 INT(RND(1)*N)+1
+                let result = if arg < 0.0 {
+                    // 负数：暂时也返回随机数（标准BASIC会重新播种）
+                    rng.gen::<f64>()
+                } else {
+                    // 0或正数：返回 [0, 1) 的随机数
+                    rng.gen::<f64>()
+                };
+                
+                Ok(Value::Number(result))
+            }
+            
             // 字符串函数
             "LEN" => {
                 if args.len() != 1 {
@@ -1503,6 +1531,100 @@ mod tests {
         };
         let result = exec.eval_expr(&expr).unwrap();
         assert_eq!(result, Value::Number(3.0));
+    }
+
+    // Test: RND 随机数函数
+    #[test]
+    fn test_rnd_function() {
+        let mut exec = Executor::new();
+        
+        // RND(1) - 返回 [0, 1) 的随机数
+        let expr = Expr::FunctionCall {
+            name: "RND".to_string(),
+            args: vec![Expr::Number(1.0)],
+        };
+        let result = exec.eval_expr(&expr).unwrap();
+        let value = result.as_number().unwrap();
+        assert!(value >= 0.0 && value < 1.0, "RND(1) should return [0, 1), got {}", value);
+        
+        // RND(0) - 也返回 [0, 1) 的随机数
+        let expr = Expr::FunctionCall {
+            name: "RND".to_string(),
+            args: vec![Expr::Number(0.0)],
+        };
+        let result = exec.eval_expr(&expr).unwrap();
+        let value = result.as_number().unwrap();
+        assert!(value >= 0.0 && value < 1.0, "RND(0) should return [0, 1), got {}", value);
+        
+        // RND(-1) - 负数参数也返回随机数
+        let expr = Expr::FunctionCall {
+            name: "RND".to_string(),
+            args: vec![Expr::Number(-1.0)],
+        };
+        let result = exec.eval_expr(&expr).unwrap();
+        let value = result.as_number().unwrap();
+        assert!(value >= 0.0 && value < 1.0, "RND(-1) should return [0, 1), got {}", value);
+        
+        // 测试随机性：生成多个值，应该不全相同
+        let mut values = Vec::new();
+        for _ in 0..10 {
+            let expr = Expr::FunctionCall {
+                name: "RND".to_string(),
+                args: vec![Expr::Number(1.0)],
+            };
+            let result = exec.eval_expr(&expr).unwrap();
+            values.push(result.as_number().unwrap());
+        }
+        
+        // 检查是否有不同的值（至少应该有2个不同的值）
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        values.dedup();
+        assert!(values.len() >= 2, "RND should generate different values, but got only {} unique values", values.len());
+    }
+    
+    // Test: RND 在实际应用中的使用（模拟骰子）
+    #[test]
+    fn test_rnd_dice_simulation() {
+        let mut exec = Executor::new();
+        
+        // 模拟投骰子：INT(RND(1)*6)+1 应该返回 1-6 的整数
+        let mut dice_values = Vec::new();
+        for _ in 0..20 {
+            // RND(1)*6
+            let rnd_expr = Expr::FunctionCall {
+                name: "RND".to_string(),
+                args: vec![Expr::Number(1.0)],
+            };
+            let multiply_expr = Expr::BinaryOp {
+                left: Box::new(rnd_expr),
+                op: BinaryOperator::Multiply,
+                right: Box::new(Expr::Number(6.0)),
+            };
+            // INT(RND(1)*6)
+            let int_expr = Expr::FunctionCall {
+                name: "INT".to_string(),
+                args: vec![multiply_expr],
+            };
+            // INT(RND(1)*6)+1
+            let dice_expr = Expr::BinaryOp {
+                left: Box::new(int_expr),
+                op: BinaryOperator::Add,
+                right: Box::new(Expr::Number(1.0)),
+            };
+            
+            let result = exec.eval_expr(&dice_expr).unwrap();
+            let value = result.as_number().unwrap() as i32;
+            dice_values.push(value);
+            
+            // 验证范围
+            assert!(value >= 1 && value <= 6, "Dice value should be 1-6, got {}", value);
+        }
+        
+        // 验证分布（至少应该有3个不同的值）
+        let mut unique_values = dice_values.clone();
+        unique_values.sort();
+        unique_values.dedup();
+        assert!(unique_values.len() >= 3, "Dice should generate varied results, got only {:?}", unique_values);
     }
 
     // Test: 字符串函数

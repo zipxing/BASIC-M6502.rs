@@ -665,7 +665,7 @@ impl Parser {
 
     /// 解析关系表达式 (=, <>, <, >, <=, >=)
     fn parse_relational_expression(&mut self) -> Result<Expr> {
-        let mut left = self.parse_additive_expression()?;
+        let left = self.parse_additive_expression()?;
         
         let op = match self.current() {
             Token::Equal => BinaryOperator::Equal,

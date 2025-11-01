@@ -8,6 +8,10 @@ description = "A Rust implementation of Microsoft BASIC 6502 interpreter"
 [dependencies]
 # 行编辑库
 rustyline = "14.0"
+# 随机数生成
+rand = "0.8"
+# Ctrl+C 信号处理
+ctrlc = "3.4"
 
 [dev-dependencies]
 # 测试相关依赖可以在这里添加
