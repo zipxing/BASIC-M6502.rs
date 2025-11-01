@@ -350,9 +350,18 @@ impl Runtime {
     /// 暂停执行
     pub fn pause_execution(&mut self) {
         if let Some(line) = self.current_line {
+            // 注意：current_stmt 已经指向下一条语句（因为 get_next_statement() 已经递增过了）
+            // 所以我们需要减去 1 来获取当前语句的索引
+            // 但如果是 0，说明当前行已经执行完，应该跳到下一行
+            let stmt = if self.current_stmt > 0 {
+                self.current_stmt - 1
+            } else {
+                // 当前行已经执行完，保持当前值（会被 continue_execution 处理）
+                self.current_stmt
+            };
             self.state = ExecutionState::Paused {
                 line,
-                stmt: self.current_stmt,
+                stmt,
             };
         }
     }
@@ -362,7 +371,19 @@ impl Runtime {
         match &self.state {
             ExecutionState::Paused { line, stmt } => {
                 self.current_line = Some(*line);
-                self.current_stmt = *stmt;
+                // 恢复时，设置 current_stmt 为保存的语句索引 + 1
+                // 这样 get_next_statement() 就能获取下一条语句
+                self.current_stmt = *stmt + 1;
+                
+                // 如果 current_stmt 已经超出了当前行的语句数量，跳到下一行
+                if let Some(line_num) = self.current_line {
+                    if let Some(line) = self.program.get(&line_num) {
+                        if self.current_stmt >= line.statements.len() {
+                            self.advance_to_next_line();
+                        }
+                    }
+                }
+                
                 self.state = ExecutionState::Running;
                 Ok(())
             }

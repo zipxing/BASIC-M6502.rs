@@ -552,6 +552,43 @@ impl Executor {
                 }
             }
             
+            "INSTR" => {
+                // INSTR(start, string1, string2) 或 INSTR(string1, string2)
+                // 返回 string2 在 string1 中第一次出现的位置（1-based），如果没找到返回 0
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(BasicError::SyntaxError("INSTR requires 2 or 3 arguments".to_string()));
+                }
+                
+                let (start_pos, str1, str2) = if args.len() == 3 {
+                    let start = self.eval_expr(&args[0])?.as_number()? as usize;
+                    let s1 = self.eval_expr(&args[1])?.as_string()?;
+                    let s2 = self.eval_expr(&args[2])?.as_string()?;
+                    (start, s1, s2)
+                } else {
+                    let s1 = self.eval_expr(&args[0])?.as_string()?;
+                    let s2 = self.eval_expr(&args[1])?.as_string()?;
+                    (1, s1, s2)
+                };
+                
+                // BASIC 的 INSTR 是 1-based
+                let start_pos = if start_pos > 0 { start_pos - 1 } else { 0 };
+                
+                // 从 start_pos 开始查找
+                if let Some(pos) = str1[start_pos..].find(&str2) {
+                    Ok(Value::Number((start_pos + pos + 1) as f64))
+                } else {
+                    Ok(Value::Number(0.0))
+                }
+            }
+            
+            "SPACE$" => {
+                if args.len() != 1 {
+                    return Err(BasicError::SyntaxError("SPACE$ requires 1 argument".to_string()));
+                }
+                let n = self.eval_expr(&args[0])?.as_number()? as usize;
+                Ok(Value::String(" ".repeat(n)))
+            }
+            
             _ => Err(BasicError::SyntaxError(
                 format!("Unknown function: {}", name)
             )),
@@ -603,6 +640,11 @@ impl Executor {
             
             Statement::Clear => {
                 self.variables.clear();
+                Ok(())
+            }
+            
+            Statement::Rem { comment: _ } => {
+                // REM 注释语句：不执行任何操作
                 Ok(())
             }
             
@@ -660,7 +702,9 @@ impl Executor {
             Statement::Gosub { line_number } => {
                 // 保存返回地址（当前行号和语句索引）
                 let return_line = self.runtime.get_current_line().unwrap_or(0);
-                let return_stmt = 0; // 简化：返回到下一行的第一条语句
+                // 注意：get_current_stmt_index() 返回的是下一条语句的索引（因为 get_next_statement() 已经递增过了）
+                // 所以我们需要减去 1 来获取当前语句的索引
+                let return_stmt = self.runtime.get_current_stmt_index().saturating_sub(1);
                 
                 // 入栈
                 self.runtime.push_gosub(return_line, return_stmt)?;
@@ -678,7 +722,9 @@ impl Executor {
                 let (return_line, return_stmt) = self.runtime.pop_gosub()?;
                 
                 // 跳转回返回地址
-                self.runtime.set_execution_position(return_line, return_stmt)?;
+                // 注意：get_next_statement() 会自动递增，所以我们需要跳转到 return_stmt + 1
+                // 但由于我们保存的是当前语句的索引，所以跳转到 return_stmt + 1 就是下一条语句
+                self.runtime.set_execution_position(return_line, return_stmt + 1)?;
                 
                 Ok(())
             }
@@ -687,13 +733,14 @@ impl Executor {
                 // 提取变量名
                 let var_names: Vec<String> = variables.iter()
                     .map(|target| match target {
-                        AssignTarget::Variable(name) => name.clone(),
+                        AssignTarget::Variable(name) => Ok(name.clone()),
                         AssignTarget::ArrayElement { .. } => {
-                            // INPUT 不支持数组元素
-                            String::new()
+                            Err(BasicError::SyntaxError(
+                                "INPUT does not support array elements".to_string()
+                            ))
                         }
                     })
-                    .collect();
+                    .collect::<Result<Vec<String>>>()?;
                 
                 self.execute_input(prompt.as_deref(), &var_names)?;
                 Ok(())
@@ -777,9 +824,11 @@ impl Executor {
                 self.variables.set(var, Value::Number(start_num))?;
                 
                 // 获取当前位置
+                // 注意：get_current_stmt_index() 返回的是下一条语句的索引（因为 get_next_statement() 已经递增过了）
+                // 所以我们需要减去 1 来获取 FOR 语句本身的索引
                 let loop_line = self.runtime.get_current_line()
                     .ok_or_else(|| BasicError::SyntaxError("FOR without line number".to_string()))?;
-                let loop_stmt = self.runtime.get_current_stmt_index();
+                let loop_stmt = self.runtime.get_current_stmt_index().saturating_sub(1);
                 
                 // 将循环信息压入栈
                 self.runtime.push_for_loop(
@@ -883,6 +932,8 @@ impl Executor {
     
     /// 执行 INPUT 语句
     fn execute_input(&mut self, prompt: Option<&str>, variables: &[String]) -> Result<()> {
+        use std::io::{self, Write};
+        
         // 显示提示符
         if let Some(p) = prompt {
             self.output(p);
@@ -891,6 +942,11 @@ impl Executor {
             self.output("? ");
         }
         
+        // 确保输出被刷新到终端
+        io::stdout().flush().map_err(|e| {
+            BasicError::SyntaxError(format!("Failed to flush stdout: {}", e))
+        })?;
+        
         // 读取输入
         let input_line = if let Some(ref mut callback) = self.input_callback {
             let prompt_text = prompt.unwrap_or("");
@@ -898,10 +954,12 @@ impl Executor {
                 BasicError::SyntaxError("No input provided".to_string())
             })?
         } else {
-            // 在实际 REPL 中，这里会从 stdin 读取
-            return Err(BasicError::SyntaxError(
-                "No input callback set".to_string()
-            ));
+            // 从 stdin 读取输入
+            let mut buffer = String::new();
+            io::stdin().read_line(&mut buffer).map_err(|e| {
+                BasicError::SyntaxError(format!("Failed to read input: {}", e))
+            })?;
+            buffer.trim().to_string()
         };
         
         // 解析输入值（考虑引号内的逗号）
@@ -1110,7 +1168,13 @@ impl Executor {
                     "RESTORE".to_string()
                 }
             }
-            Statement::Rem => "REM".to_string(),
+            Statement::Rem { comment } => {
+                if comment.is_empty() {
+                    "REM".to_string()
+                } else {
+                    format!("REM {}", comment)
+                }
+            }
             Statement::End => "END".to_string(),
             Statement::Stop => "STOP".to_string(),
             Statement::New => "NEW".to_string(),
@@ -1220,6 +1284,8 @@ impl Executor {
         // 清空当前程序
         self.runtime.clear_program();
         self.variables.clear();
+        self.data_values.clear();
+        self.data_pointer = 0;
         
         // 逐行解析并添加到程序
         for line in content.lines() {
@@ -1235,6 +1301,19 @@ impl Executor {
             let mut parser = Parser::new(tokens);
             if let Some(program_line) = parser.parse_line()? {
                 if program_line.line_number > 0 {
+                    // 在添加之前，收集所有 DATA 语句的值
+                    for stmt in &program_line.statements {
+                        if let Statement::Data { values } = stmt {
+                            for value in values {
+                                // 转换 ast::DataValue 到 executor::DataValue
+                                let exec_value = match value {
+                                    crate::ast::DataValue::Number(n) => DataValue::Number(*n),
+                                    crate::ast::DataValue::String(s) => DataValue::String(s.clone()),
+                                };
+                                self.add_data_value(exec_value);
+                            }
+                        }
+                    }
                     self.runtime.add_line(program_line);
                 }
             }
@@ -1650,6 +1729,68 @@ mod tests {
         };
         let result = exec.eval_expr(&expr).unwrap();
         assert_eq!(result, Value::String("HEL".to_string()));
+        
+        // INSTR - 两个参数形式
+        let expr = Expr::FunctionCall {
+            name: "INSTR".to_string(),
+            args: vec![
+                Expr::String("HELLO".to_string()),
+                Expr::String("L".to_string()),
+            ],
+        };
+        let result = exec.eval_expr(&expr).unwrap();
+        assert_eq!(result, Value::Number(3.0)); // "L" 在 "HELLO" 中的位置是 3
+        
+        // INSTR - 三个参数形式（从指定位置开始）
+        let expr = Expr::FunctionCall {
+            name: "INSTR".to_string(),
+            args: vec![
+                Expr::Number(1.0),
+                Expr::String("HELLO".to_string()),
+                Expr::String("L".to_string()),
+            ],
+        };
+        let result = exec.eval_expr(&expr).unwrap();
+        assert_eq!(result, Value::Number(3.0));
+        
+        // INSTR - 从位置 4 开始查找
+        let expr = Expr::FunctionCall {
+            name: "INSTR".to_string(),
+            args: vec![
+                Expr::Number(4.0),
+                Expr::String("HELLO".to_string()),
+                Expr::String("L".to_string()),
+            ],
+        };
+        let result = exec.eval_expr(&expr).unwrap();
+        assert_eq!(result, Value::Number(4.0)); // 从位置 4 开始，"L" 在位置 4
+        
+        // INSTR - 找不到的情况
+        let expr = Expr::FunctionCall {
+            name: "INSTR".to_string(),
+            args: vec![
+                Expr::String("HELLO".to_string()),
+                Expr::String("X".to_string()),
+            ],
+        };
+        let result = exec.eval_expr(&expr).unwrap();
+        assert_eq!(result, Value::Number(0.0)); // 没找到返回 0
+        
+        // SPACE$
+        let expr = Expr::FunctionCall {
+            name: "SPACE$".to_string(),
+            args: vec![Expr::Number(5.0)],
+        };
+        let result = exec.eval_expr(&expr).unwrap();
+        assert_eq!(result, Value::String("     ".to_string())); // 5 个空格
+        
+        // SPACE$(0) - 空字符串
+        let expr = Expr::FunctionCall {
+            name: "SPACE$".to_string(),
+            args: vec![Expr::Number(0.0)],
+        };
+        let result = exec.eval_expr(&expr).unwrap();
+        assert_eq!(result, Value::String("".to_string()));
     }
 
     // Test: 复杂表达式
@@ -1824,11 +1965,11 @@ mod tests {
         
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 10,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 100,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         
         // 启动执行来设置初始状态
@@ -1949,11 +2090,11 @@ mod tests {
         
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 10,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 500,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         
         // 启动执行
@@ -1978,15 +2119,15 @@ mod tests {
         
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 10,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 20,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 500,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         
         // 启动执行并设置调用栈
@@ -2010,15 +2151,15 @@ mod tests {
         
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 10,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 100,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 200,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         
         // 启动执行
@@ -2377,15 +2518,15 @@ mod tests {
         
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 10,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 100,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 200,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         
         exec.runtime_mut().start_execution(Some(10)).unwrap();
@@ -2408,11 +2549,11 @@ mod tests {
         
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 10,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 100,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         
         exec.runtime_mut().start_execution(Some(10)).unwrap();
@@ -2437,7 +2578,7 @@ mod tests {
         
         exec.runtime_mut().add_line(ProgramLine {
             line_number: 10,
-            statements: vec![Statement::Rem],
+            statements: vec![Statement::Rem { comment: String::new() }],
         });
         
         exec.runtime_mut().start_execution(Some(10)).unwrap();

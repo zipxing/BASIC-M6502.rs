@@ -111,7 +111,16 @@ impl Parser {
             Token::Def => self.parse_def_fn(),
             Token::Rem => {
                 self.advance();
-                Ok(Statement::Rem)
+                // 提取 REM 后面的注释内容
+                // Tokenizer 会将注释内容作为 String token 返回
+                let comment = if let Token::String(ref comment) = self.current() {
+                    let c = comment.clone();
+                    self.advance();
+                    c
+                } else {
+                    String::new()
+                };
+                Ok(Statement::Rem { comment })
             }
             Token::End => {
                 self.advance();
@@ -804,7 +813,8 @@ impl Parser {
             Token::Log | Token::Exp | Token::Sin | Token::Cos | Token::Tan |
             Token::Atn | Token::Len | Token::Val | Token::Asc | Token::Peek |
             Token::Fre | Token::Pos | Token::Usr |
-            Token::StrFunc | Token::ChrFunc | Token::LeftFunc | Token::RightFunc | Token::MidFunc
+            Token::StrFunc | Token::ChrFunc | Token::LeftFunc | Token::RightFunc | Token::MidFunc |
+            Token::Instr | Token::SpaceFunc
         )
     }
 
@@ -838,6 +848,8 @@ impl Parser {
             Token::LeftFunc => "LEFT$",
             Token::RightFunc => "RIGHT$",
             Token::MidFunc => "MID$",
+            Token::Instr => "INSTR",
+            Token::SpaceFunc => "SPACE$",
             _ => unreachable!(),
         }.to_string();
         
@@ -1111,7 +1123,7 @@ mod tests {
         let line = parse_line_helper("10 FOR I = 10 TO 1 STEP -1").unwrap().unwrap();
         
         match &line.statements[0] {
-            Statement::For { var, start, end, step } => {
+            Statement::For { var, start: _, end: _, step } => {
                 assert_eq!(*var, "I");
                 assert_eq!(step.is_some(), true);
             }

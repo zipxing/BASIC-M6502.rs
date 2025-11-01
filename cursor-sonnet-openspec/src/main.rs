@@ -1,5 +1,5 @@
 use basic_m6502::{
-    BasicError, Executor, Parser, Result, Statement, Tokenizer,
+    ast::DataValue, BasicError, Executor, Parser, Result, Statement, Tokenizer,
 };
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
@@ -134,6 +134,19 @@ fn process_line(executor: &mut Executor, line: &str, interrupted: &Arc<AtomicBoo
                 executor.runtime_mut().delete_line(program_line.line_number);
             } else {
                 // 非空行：添加到程序
+                // 在添加之前，收集所有 DATA 语句的值
+                for stmt in &program_line.statements {
+                    if let Statement::Data { values } = stmt {
+                        for value in values {
+                            // 转换 ast::DataValue 到 executor::DataValue
+                            let exec_value = match value {
+                                DataValue::Number(n) => basic_m6502::DataValue::Number(*n),
+                                DataValue::String(s) => basic_m6502::DataValue::String(s.clone()),
+                            };
+                            executor.add_data_value(exec_value);
+                        }
+                    }
+                }
                 executor.runtime_mut().add_line(program_line);
             }
             // 程序行输入后不打印 Ready
@@ -208,8 +221,14 @@ fn list_program(executor: &Executor, start: Option<u16>, end: Option<u16>) {
 
 /// 运行程序
 fn run_program(executor: &mut Executor, line_number: Option<u16>, interrupted: &Arc<AtomicBool>) -> Result<()> {
-    // 启动执行
-    executor.runtime_mut().start_execution(line_number)?;
+    // 只有在未运行时才启动执行
+    if !executor.runtime().is_running() && !executor.runtime().is_paused() {
+        // 在启动新执行前，清空所有变量和数组（经典 BASIC 行为）
+        executor.variables_mut().clear();
+        // 重置 DATA 指针，使其可以从头读取 DATA 语句
+        executor.restore_data();
+        executor.runtime_mut().start_execution(line_number)?;
+    }
     
     // 执行循环
     loop {
@@ -243,6 +262,12 @@ fn run_program(executor: &mut Executor, line_number: Option<u16>, interrupted: &
         
         // 检查是否应该停止
         if executor.runtime().is_stopped() {
+            // 如果是暂停状态（STOP），打印消息
+            if executor.runtime().is_paused() {
+                if let Some(line) = executor.runtime().get_current_line() {
+                    println!("?BREAK IN {}", line);
+                }
+            }
             break;
         }
     }
@@ -266,6 +291,10 @@ fn continue_program(executor: &mut Executor, interrupted: &Arc<AtomicBool>) -> R
 /// 格式化错误信息
 fn format_error(error: &BasicError) -> String {
     match error {
+        BasicError::IllegalCharacter(_, _, _) => {
+            // 使用 Display 格式显示完整错误信息（包含上下文）
+            format!("{}", error)
+        }
         BasicError::SyntaxError(_) => "SYNTAX ERROR".to_string(),
         BasicError::DivisionByZero => "DIVISION BY ZERO".to_string(),
         BasicError::TypeMismatch(_) => "TYPE MISMATCH".to_string(),
@@ -276,7 +305,7 @@ fn format_error(error: &BasicError) -> String {
         BasicError::ReturnWithoutGosub => "RETURN WITHOUT GOSUB".to_string(),
         BasicError::NextWithoutFor(_) => "NEXT WITHOUT FOR".to_string(),
         BasicError::CantContinue => "CAN'T CONTINUE".to_string(),
-        _ => format!("{:?}", error),
+        _ => format!("{}", error),  // 使用 Display 格式而不是 Debug
     }
 }
 

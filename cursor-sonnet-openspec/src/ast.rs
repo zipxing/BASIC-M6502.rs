@@ -153,7 +153,9 @@ pub enum Statement {
     },
     
     // REM 注释
-    Rem,
+    Rem {
+        comment: String,
+    },
     
     // END 结束
     End,

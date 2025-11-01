@@ -4,7 +4,7 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum BasicError {
     // 词法分析错误
-    IllegalCharacter(char, usize),
+    IllegalCharacter(char, usize, String),  // 字符，位置，上下文
     UnterminatedString(usize),
     InvalidNumber(String, usize),
     
@@ -42,8 +42,8 @@ pub enum BasicError {
 impl std::fmt::Display for BasicError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BasicError::IllegalCharacter(ch, pos) => {
-                write!(f, "?ILLEGAL CHARACTER '{}' AT POSITION {}", ch, pos)
+            BasicError::IllegalCharacter(ch, pos, context) => {
+                write!(f, "ILLEGAL CHARACTER '{}' AT POSITION {}\n{}", ch, pos, context)
             }
             BasicError::UnterminatedString(pos) => {
                 write!(f, "?UNTERMINATED STRING AT POSITION {}", pos)
@@ -145,8 +145,9 @@ mod tests {
 
     #[test]
     fn test_illegal_character() {
-        let err = BasicError::IllegalCharacter('@', 5);
-        assert_eq!(err.to_string(), "?ILLEGAL CHARACTER '@' AT POSITION 5");
+        let err = BasicError::IllegalCharacter('@', 5, "Context: test@\n     ^".to_string());
+        assert!(err.to_string().contains("ILLEGAL CHARACTER '@'"));
+        assert!(err.to_string().contains("AT POSITION 5"));
     }
 
     #[test]

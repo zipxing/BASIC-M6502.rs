@@ -46,7 +46,11 @@
 - [x] 4.7 实现 NEW 命令 (清空程序)
 - [x] 4.8 实现 LIST 命令 (列出程序)
 - [x] 4.9 实现 RUN 命令
+- [x] 4.9.1 修复 RUN 命令重置状态（在启动新执行前清空变量、数组和重置 DATA 指针）
 - [x] 4.10 实现 STOP, END, CONT 命令
+- [x] 4.10.1 修复 STOP/CONT 执行位置保存（修复 pause_execution 和 continue_execution 的 loop_stmt 计算）
+- [x] 4.10.2 修复 STOP 语句打印消息（执行 STOP 后打印 ?BREAK IN <line_number>）
+- [x] 4.10.3 修复 RUN 命令在已运行时不重新启动执行（避免 CONT 后从头执行）
 - [x] 4.11 编写运行时单元测试
 
 ## 5. 变量系统 (Variables)
@@ -55,6 +59,7 @@
 - [x] 5.3 实现简单变量存储 (HashMap)
 - [x] 5.4 实现数组变量存储
 - [x] 5.5 实现 DIM 语句
+- [x] 5.5.1 修复 DIM 数组大小计算（修复 0-based 索引，DIM A(N) 创建 N+1 个元素）
 - [x] 5.6 实现数组边界检查
 - [x] 5.7 实现多维数组支持
 - [x] 5.8 实现变量类型检查
@@ -79,11 +84,15 @@
 - [x] 6B.2 PRINT 使用分隔符 (逗号、分号)
 - [x] 6B.3 PRINT TAB() 和 SPC() 函数
 - [x] 6B.4 REM 语句 (注释 - 已在解析器中支持)
+- [x] 6B.4.1 修复 REM 语句解析（支持 REM 后包含特殊字符的注释内容）
 - [x] 6B.5 GOTO 语句
+- [x] 6B.5.1 支持 GO TO 语法（带空格的 GO TO，tokenizer 识别为 GOTO）
 - [x] 6B.6 IF...THEN 语句（包括 THEN 后跟行号或语句）
 - [x] 6B.7 GOSUB 和 RETURN 语句
+- [x] 6B.7.1 修复 GOSUB/RETURN 返回地址保存（修复 loop_stmt 计算，正确保存和恢复执行位置）
 - [x] 6B.8 ON...GOTO 和 ON...GOSUB 语句
 - [x] 6B.9 FOR...NEXT 语句
+- [x] 6B.9.1 修复单行 FOR 循环问题（修复 loop_stmt 计算，确保 NEXT 正确跳转回循环体）
 - [x] 6B.10 FOR...STEP 支持
 - [x] 6B.11 测试所有高级语句（已完成 20 个测试）
 
@@ -133,15 +142,19 @@
 - [x] 10.8 VAL(s$) - 字符串转数字
 - [x] 10.9 ASC(s$) - 字符 ASCII 码
 - [x] 10.10 CHR$(x) - ASCII 码转字符
-- [x] 10.11 字符串比较
-- [x] 10.12 测试所有字符串函数
+- [x] 10.11 INSTR([start, ]string1, string2) - 查找子串位置
+- [x] 10.12 SPACE$(n) - 生成空格字符串
+- [x] 10.13 字符串比较
+- [x] 10.14 测试所有字符串函数（包括 INSTR 和 SPACE$）
 
 ## 11. 输入输出 (I/O)
 - [x] 11.1 实现基础 INPUT 语句
+- [x] 11.1.1 修复 INPUT 语句在 REPL 模式下的执行（从 stdin 读取输入，而不是返回错误）
 - [x] 11.2 INPUT 提示符支持
 - [x] 11.3 INPUT 多个变量
 - [x] 11.4 INPUT 错误处理和重试
 - [x] 11.5 实现 DATA 语句
+- [x] 11.5.1 修复 DATA 语句在程序加载时的处理（在 LOAD 和添加程序行时收集 DATA 值）
 - [x] 11.6 实现 READ 语句
 - [x] 11.7 实现 RESTORE 语句
 - [x] 11.8 集成 rustyline 行编辑
@@ -189,6 +202,7 @@
 - [x] 15.8 测试交互模式（手动测试通过）
 - [x] 15.9 优化提示符显示（修复换行问题，使用 println 手动打印提示符，rustyline 提示符设为空）
 - [x] 15.10 统一提示符（定义 PROMPT 常量为 "READY."，所有提示符引用统一使用该常量）
+- [x] 15.11 Ctrl+D 退出时打印 "Bye." 消息
 
 ## 16. 高级功能 (可选)
 - [x] 16.1 LOAD 命令 (从文件加载程序)

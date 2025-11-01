@@ -73,6 +73,8 @@ pub enum Token {
     LeftFunc,   // LEFT$
     RightFunc,  // RIGHT$
     MidFunc,    // MID$
+    Instr,      // INSTR
+    SpaceFunc,  // SPACE$
     
     // 格式化函数（PRINT 用）
     Tab,
@@ -173,6 +175,8 @@ impl Token {
             "LEFT$" => Some(Token::LeftFunc),
             "RIGHT$" => Some(Token::RightFunc),
             "MID$" => Some(Token::MidFunc),
+            "INSTR" => Some(Token::Instr),
+            "SPACE$" => Some(Token::SpaceFunc),
             
             // 格式化函数
             "TAB" => Some(Token::Tab),

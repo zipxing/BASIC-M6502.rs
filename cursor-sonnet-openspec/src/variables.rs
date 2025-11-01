@@ -60,7 +60,8 @@ pub struct Array {
 impl Array {
     /// 创建新的数组
     pub fn new(dimensions: Vec<usize>, is_string: bool) -> Self {
-        let total_size: usize = dimensions.iter().product();
+        // BASIC 数组索引是从 0 到 N（包括 N），所以每个维度需要 +1
+        let total_size: usize = dimensions.iter().map(|&d| d + 1).product();
         let default_value = if is_string {
             Value::String(String::new())
         } else {

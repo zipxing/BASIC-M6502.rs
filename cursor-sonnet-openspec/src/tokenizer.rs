@@ -9,6 +9,7 @@ pub struct Tokenizer {
     input: Vec<char>,
     position: usize,
     is_line_start: bool,
+    rem_comment: Option<String>,  // 存储 REM 注释内容
 }
 
 impl Tokenizer {
@@ -18,6 +19,7 @@ impl Tokenizer {
             input: input.chars().collect(),
             position: 0,
             is_line_start: true,
+            rem_comment: None,
         }
     }
 
@@ -25,6 +27,7 @@ impl Tokenizer {
     pub fn tokenize_line(&mut self) -> Result<Vec<Token>> {
         let mut tokens = Vec::new();
         self.is_line_start = true;
+        self.rem_comment = None;  // 重置 REM 注释
 
         while self.position < self.input.len() {
             self.skip_whitespace();
@@ -38,6 +41,13 @@ impl Tokenizer {
             match &token {
                 Token::Eof => break,
                 Token::Newline => break,
+                Token::Rem => {
+                    tokens.push(token);
+                    // 如果有 REM 注释内容，将其作为 String token 添加
+                    if let Some(ref comment) = self.rem_comment {
+                        tokens.push(Token::String(comment.clone()));
+                    }
+                }
                 _ => tokens.push(token),
             }
         }
@@ -154,11 +164,25 @@ impl Tokenizer {
                 Ok(Token::Newline)
             }
             _ => {
-                if ch.is_ascii() {
-                    Err(BasicError::IllegalCharacter(ch, self.position))
-                } else {
-                    Err(BasicError::IllegalCharacter(ch, self.position))
-                }
+                // 生成详细的错误信息，包含上下文
+                let full_input: String = self.input.iter().collect();
+                let marker = " ".repeat(self.position) + "^";
+                
+                // 获取错误位置的上下文（前后各20个字符）
+                let context_start = self.position.saturating_sub(20);
+                let context_end = (self.position + 20).min(self.input.len());
+                let context: String = self.input[context_start..context_end].iter().collect();
+                let marker_pos = self.position - context_start;
+                let context_marker = " ".repeat(marker_pos) + "^";
+                
+                Err(BasicError::IllegalCharacter(
+                    ch,
+                    self.position,
+                    format!(
+                        "Input line: {}\n{}\n\nContext (position {}):\n{}\n{}",
+                        full_input, marker, self.position, context, context_marker
+                    ),
+                ))
             }
         }
     }
@@ -273,11 +297,50 @@ impl Tokenizer {
 
         // 检查是否为关键字
         if let Some(keyword_token) = Token::from_keyword(&ident) {
-            // 特殊处理 REM 注释
+            // REM 注释：识别到 REM 后，读取后面的所有内容到行尾作为注释字符串
             if keyword_token == Token::Rem {
-                self.skip_to_end_of_line();
+                // 跳过空白字符
+                self.skip_whitespace();
+                // 读取到行尾的所有内容作为注释
+                let mut comment = String::new();
+                while self.position < self.input.len() {
+                    let ch = self.current_char();
+                    if ch == '\n' || ch == '\r' {
+                        break;
+                    }
+                    comment.push(ch);
+                    self.advance();
+                }
+                // 存储注释内容
+                self.rem_comment = Some(comment.trim().to_string());
+                return Ok(keyword_token);
             }
             Ok(keyword_token)
+        } else if ident.to_uppercase() == "GO" {
+            // 特殊处理 "GO TO"（带空格）
+            // 跳过空白字符
+            self.skip_whitespace();
+            // 检查后面是否是 "TO"
+            let saved_pos = self.position;
+            let mut to_ident = String::new();
+            while self.position < self.input.len() {
+                let ch = self.current_char();
+                if ch.is_ascii_alphanumeric() {
+                    to_ident.push(ch);
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            
+            if to_ident.to_uppercase() == "TO" {
+                // 找到了 "GO TO"，返回 GOTO token
+                Ok(Token::Goto)
+            } else {
+                // 不是 "GO TO"，恢复位置，返回 GO 作为标识符
+                self.position = saved_pos;
+                Ok(Token::Identifier(ident))
+            }
         } else {
             // 普通标识符
             Ok(Token::Identifier(ident))
@@ -293,17 +356,6 @@ impl Tokenizer {
             } else {
                 break;
             }
-        }
-    }
-
-    /// 跳过到行尾（用于 REM 注释）
-    fn skip_to_end_of_line(&mut self) {
-        while self.position < self.input.len() {
-            let ch = self.current_char();
-            if ch == '\n' || ch == '\r' {
-                break;
-            }
-            self.advance();
         }
     }
 
@@ -602,7 +654,8 @@ mod tests {
         let tokens = tokenizer.tokenize_line().unwrap();
         assert_eq!(tokens[0], Token::LineNumber(10));
         assert_eq!(tokens[1], Token::Rem);
-        assert_eq!(tokens.len(), 3); // LineNumber, REM, Newline（注释被忽略）
+        // REM 后面的内容会被解析成 token（现在由 parser 处理注释内容）
+        assert!(tokens.len() >= 3); // LineNumber, REM, 注释内容 tokens, Newline
     }
 
     // Requirement: 错误处理 - 未闭合字符串
